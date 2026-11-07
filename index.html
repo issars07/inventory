@@ -1,707 +1,1091 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inventory Management Simulator</title>
-    
-    <!-- Load Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f3f4f6; /* Light gray background */
-        }
-        .card {
-            @apply bg-white p-6 rounded-xl shadow-lg border border-gray-200;
-        }
-        .input-group label {
-            @apply block text-sm font-medium text-gray-700 mb-1;
-        }
-        .input-group input {
-            @apply w-full p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500;
-        }
-        canvas {
-            border: 1px solid #e5e7eb;
-            background-color: #ffffff;
-        }
-        /* Custom animation for the EKG dot */
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); opacity: 1; }
-            50% { transform: scale(1.3); opacity: 0.7; }
-        }
-        .pulse-dot {
-            animation: pulse 1.5s infinite ease-in-out;
-        }
-    </style>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        indigo: { 500: '#6366f1', 600: '#4f46e5' },
-                        emerald: { 500: '#10b981', 600: '#059669' },
-                        red: { 500: '#ef4444', 600: '#dc2626' }
-                    }
-                }
-            }
-        }
-    </script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Inventory Management Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  /* Layout: graph + live warehouse side panel on top, policy / parameters / costs below. Steel-grey warehouse neutrals, signage-condensed labels. */
+  :root {
+    --bg: #eceff3;
+    --surface: #ffffff;
+    --surface-2: #f4f6f8;
+    --line: #d3d9e1;
+    --fg: #1a2330;
+    --muted: #5a6778;
+    --accent: #23436b;
+    --accent-fg: #ffffff;
+    --stock: #2d6bd1;
+    --short: #d03f3f;
+    --rop: #d4861a;
+    --deliver: #1d9566;
+    --rack: #8796a8;
+    --box: #c99559;
+    --box-edge: #96683a;
+    --font-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+    --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #11161d; --surface: #19202a; --surface-2: #202935; --line: #2e3947;
+      --fg: #e5eaf0; --muted: #92a0b1; --accent: #84a9dc; --accent-fg: #0f1722;
+      --stock: #5c97ef; --short: #ef6b6b; --rop: #eea63e; --deliver: #3ec28b;
+      --rack: #586779; --box: #b88452; --box-edge: #7c5531;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #11161d; --surface: #19202a; --surface-2: #202935; --line: #2e3947;
+    --fg: #e5eaf0; --muted: #92a0b1; --accent: #84a9dc; --accent-fg: #0f1722;
+    --stock: #5c97ef; --short: #ef6b6b; --rop: #eea63e; --deliver: #3ec28b;
+    --rack: #586779; --box: #b88452; --box-edge: #7c5531;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  [hidden] { display: none !important; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.5;
+    padding-block: 28px 48px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .page { max-width: 1240px; margin: 0 auto; display: grid; gap: 20px; }
+
+  header { display: grid; gap: 4px; }
+  .eyebrow {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  h1 {
+    font-family: var(--font-display); font-weight: 700; font-size: clamp(30px, 4.4vw, 44px);
+    line-height: 1.05; margin: 0; letter-spacing: .01em; text-wrap: balance;
+  }
+  .lede { margin: 6px 0 0; color: var(--muted); max-width: 68ch; }
+
+  h2 {
+    font-family: var(--font-display); font-weight: 600; font-size: 21px; letter-spacing: .03em;
+    text-transform: uppercase; margin: 0; line-height: 1.2;
+  }
+  .sub { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
+
+  /* The two top panels share three grid rows (header / graphic / details) through subgrid,
+     so the headers, the graphic areas and the panel bottoms always line up. */
+  .layout {
+    display: grid; gap: 20px;
+    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  }
+  .graph-col, .wh-col { display: contents; }
+  .graph-panel { grid-column: 1; grid-row: 1 / span 3; }
+  .wh-panel { grid-column: 2; grid-row: 1 / span 3; }
+  .graph-panel, .wh-panel { grid-template-rows: subgrid; row-gap: 14px; }
+  .graph-panel > .panel-head, .wh-panel > .panel-head { align-items: flex-start; align-self: start; }
+  .panel-rest { display: grid; gap: 14px; align-content: start; min-width: 0; }
+  .settings { grid-column: 1 / -1; grid-row: 4; display: grid; gap: 20px; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); align-items: stretch; }
+  .settings > .panel { align-content: start; }
+  .settings-top { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); }
+  .policy-block { display: grid; gap: 12px; align-content: start; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+  .param-block { display: grid; gap: 12px; align-content: start; min-width: 0; }
+  .settings-top > .param-block { padding-top: 15px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .group-label { margin: 0; }
+
+  .panel {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 18px; display: grid; gap: 14px; min-width: 0;
+  }
+  .panel-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 8px 16px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+  .sw.stock { background: var(--stock); }
+  .sw.short { background: var(--short); }
+  .sw.rop { background: repeating-linear-gradient(90deg, var(--rop) 0 4px, transparent 4px 7px); }
+  .sw.deliver { background: repeating-linear-gradient(90deg, var(--deliver) 0 5px, transparent 5px 9px); }
+  .sw.box { width: 11px; height: 9px; background: var(--box); border: 1px solid var(--box-edge); border-radius: 2px; }
+  .sw.back { width: 11px; height: 9px; border: 1.5px dashed var(--short); border-radius: 2px; }
+  .sw.ropslot { width: 13px; height: 11px; border: 2px solid var(--short); border-radius: 3px; }
+
+  .canvas-wrap { position: relative; width: 100%; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--line); overflow: hidden; }
+  .canvas-wrap.graph, .canvas-wrap.wh { height: 400px; }
+  .canvas-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  .status {
+    border-radius: 8px; padding: 10px 14px; background: var(--surface-2); border: 1px solid var(--line);
+    font-size: 14px; min-height: 64px; display: grid; gap: 2px; align-content: center;
+  }
+  .status .ev-rop { color: var(--rop); font-weight: 600; }
+  .status .ev-del { color: var(--deliver); font-weight: 600; }
+  .status .ev-err { color: var(--short); font-weight: 600; }
+  .status .tag { font-family: var(--font-mono); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .status.is-paused { border-color: var(--rop); }
+  .status.is-error { border-color: var(--short); }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  button {
+    font: 600 14px/1 var(--font-body); padding: 12px 18px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--surface); color: var(--fg);
+    transition: background .15s, border-color .15s, transform .05s;
+  }
+  button:hover:not(:disabled) { border-color: var(--muted); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); flex: 1 1 160px; }
+  button.primary:hover:not(:disabled) { filter: brightness(1.08); border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--stock); outline-offset: 2px; }
+  .speed { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); margin-left: auto; }
+  select, input {
+    font: 500 14px var(--font-mono); color: var(--fg); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px;
+  }
+
+  .field { display: grid; gap: 4px; min-width: 0; }
+  .field label { font-size: 13px; font-weight: 600; }
+  .field input { width: 100%; }
+  .field .hint { font-size: 12px; color: var(--muted); margin: 0; }
+  .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .group-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 4px 0 -4px; }
+
+  .readouts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .readout { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+  .readout .k { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .readout .v { font: 500 18px var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .readout .v.neg { color: var(--short); }
+  .note { font-size: 12px; color: var(--muted); margin: -4px 0 0; }
+
+  .transit { display: grid; gap: 8px; }
+  .transit-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .truck-row { display: grid; gap: 4px; font-size: 13px; }
+  .truck-row .meta { display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; }
+  .truck-row .meta span:last-child { color: var(--muted); font-family: var(--font-mono); font-size: 12px; }
+  .bar { height: 6px; border-radius: 3px; background: var(--surface-2); border: 1px solid var(--line); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--deliver); }
+  .empty { font-size: 13px; color: var(--muted); }
+
+  .costs { display: grid; gap: 8px; font-size: 14px; }
+  .costs .row { display: flex; justify-content: space-between; gap: 12px; }
+  .costs .row span:last-child { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 500; }
+  .costs .row.sub { padding-top: 8px; border-top: 1px solid var(--line); }
+  .costs .row.total { padding-top: 8px; border-top: 2px solid var(--fg); font-weight: 600; font-size: 16px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
+  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+
+  @media (max-width: 920px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    .graph-panel { grid-column: 1; grid-row: 1 / span 3; }
+    .wh-panel { grid-column: 1; grid-row: 4 / span 3; }
+    .settings { grid-row: 7; grid-template-columns: minmax(0, 1fr); }
+    .canvas-wrap.graph { height: 320px; }
+  }
+  @media (max-width: 640px) {
+    .settings-top { grid-template-columns: minmax(0, 1fr); }
+    .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 460px) {
+    .readouts, .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .speed { margin-left: 0; }
+  }
+</style>
+
 </head>
-<body class="p-4 md:p-8 min-h-screen">
+<body>
+<div class="page">
+  <header>
+    <span class="eyebrow">(ROP, Q) continuous review · random demand &amp; lead time</span>
+    <h1>Inventory Management Simulator</h1>
+    <p class="lede">Set a reorder point and order quantity, then watch how uncertain demand and delivery times push stock up and down. The warehouse panel shows the same inventory as physical boxes, moving in step with the graph.</p>
+  </header>
 
-    <h1 class="text-3xl font-extrabold text-gray-900 mb-8 text-center">
-        Uncertainty in Inventory Management Simulator
-    </h1>
-
-    <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
-
-        <!-- Simulation Graph (Large Column) -->
-        <div class="lg:col-span-2 relative overflow-hidden"> 
-            <div class="card">
-                <h2 class="text-xl font-semibold mb-4 text-indigo-600">Inventory Level vs. Time</h2>
-                <canvas id="inventoryCanvas" height="400" class="w-full"></canvas>
-                
-                <!-- Store Location Icon - Fixed at the bottom, X position updated dynamically by JS -->
-                <div id="store-location" class="absolute left-1/2 bottom-0 text-3xl transition-transform duration-75 ease-out" style="transform: translateX(-50%); z-index: 10;">
-                    🏪
-                </div>
-
-                <div id="statusMessage" class="mt-4 p-3 rounded-lg text-center font-medium bg-gray-100 text-gray-800">
-                    Click "Start Simulation" to begin.
-                </div>
-            </div>
-
-            <!-- Controls (Moved under the graph) -->
-            <div class="grid grid-cols-3 gap-4 mt-6">
-                <button id="startBtn" onclick="toggleSimulation(true)" class="bg-indigo-600 text-white font-semibold py-3 rounded-xl hover:bg-indigo-700 transition duration-150 shadow-md">
-                    Start Simulation
-                </button>
-                <button id="stopBtn" onclick="toggleSimulation(false)" class="bg-red-500 text-white font-semibold py-3 rounded-xl hover:bg-red-600 transition duration-150 shadow-md" disabled>
-                    Pause
-                </button>
-                <button id="resetBtn" onclick="resetSimulation()" class="bg-gray-500 text-white font-semibold py-3 rounded-xl hover:bg-gray-600 transition duration-150 shadow-md">
-                    Reset
-                </button>
-            </div>
+  <div class="layout">
+    <section class="graph-col">
+      <div class="panel graph-panel">
+        <div class="panel-head">
+          <h2>Inventory level vs. time</h2>
+          <div class="legend">
+            <span><i class="sw stock"></i>On hand</span>
+            <span><i class="sw short"></i>Shortage</span>
+            <span><i class="sw rop"></i>Reorder point</span>
+            <span><i class="sw deliver"></i>Order in transit</span>
+          </div>
         </div>
-
-        <!-- Controls and Metrics (Small Column) -->
-        <div class="lg:col-span-1 space-y-6">
-            
-            <!-- User Decision Variables -->
-            <div class="card space-y-4">
-                <h2 class="text-xl font-bold text-gray-800 border-b pb-2">User Policy Settings</h2>
-                <div class="input-group">
-                    <label for="rop">Reorder Point (ROP, units)</label>
-                    <input type="number" id="rop" value="50" min="0" step="1" required>
-                    <p class="text-xs text-gray-500 mt-1">Order placed when inventory hits this level.</p>
-                </div>
-                <div class="input-group">
-                    <label for="orderQuantity">Order Quantity (Q, units)</label>
-                    <input type="number" id="orderQuantity" value="100" min="1" step="1" required>
-                    <p class="text-xs text-gray-500 mt-1">Size of each replenishment order.</p>
-                </div>
-            </div>
-            
-            <!-- Admin/System Parameters -->
-            <div class="card space-y-4">
-                <h2 class="text-xl font-bold text-gray-800 border-b pb-2">System Parameters (Admin)</h2>
-                
-                <div class="grid grid-cols-2 gap-4">
-                    <div class="input-group">
-                        <label for="demandMean">Demand Avg ($$\mu$$)</label>
-                        <input type="number" id="demandMean" value="10" min="1" step="0.1" required>
-                    </div>
-                    <div class="input-group">
-                        <label for="demandStdDev">Demand Std Dev ($$\sigma$$)</label>
-                        <input type="number" id="demandStdDev" value="2" min="0" step="0.1" required>
-                    </div>
-                    <div class="input-group">
-                        <label for="leadTimeMean">Lead Time Avg ($$\mu$$ days)</label>
-                        <input type="number" id="leadTimeMean" value="5" min="1" step="0.1" required>
-                    </div>
-                    <div class="input-group">
-                        <label for="leadTimeStdDev">Lead Time Std Dev ($$\sigma$$ days)</label>
-                        <input type="number" id="leadTimeStdDev" value="1" min="0" step="0.1" required>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-2 gap-4">
-                    <div class="input-group">
-                        <label for="holdingCost">Holding Cost ($$/unit/day)</label>
-                        <input type="number" id="holdingCost" value="0.5" min="0" step="0.01" required>
-                    </div>
-                    <div class="input-group">
-                        <label for="shortageCost">Shortage Penalty ($$/unit/day)</label>
-                        <input type="number" id="shortageCost" value="2.0" min="0" step="0.01" required>
-                    </div>
-                    <div class="input-group">
-                        <label for="orderingCost">Ordering Cost ($$/order)</label>
-                        <input type="number" id="orderingCost" value="100" min="0" step="1" required>
-                    </div>
-                    <div class="input-group">
-                        <label for="unitCost">Unit Cost ($$)</label>
-                        <input type="number" id="unitCost" value="50" min="0" step="1" required>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Cost Metrics -->
-            <div class="card space-y-3">
-                <h2 class="text-xl font-bold text-gray-800 border-b pb-2">Accumulated Costs</h2>
-                <div class="text-sm">
-                    <p class="flex justify-between">
-                        <span class="font-medium text-gray-600">Total Holding Cost:</span>
-                        <span id="holdingCostDisplay" class="font-bold text-emerald-500">$0.00</span>
-                    </p>
-                    <p class="flex justify-between">
-                        <span class="font-medium text-gray-600">Total Shortage Cost:</span>
-                        <span id="shortageCostDisplay" class="font-bold text-red-500">$0.00</span>
-                    </p>
-                    <p class="flex justify-between">
-                        <span class="font-medium text-gray-600">Total Ordering Cost:</span>
-                        <span id="orderingCostDisplay" class="font-bold text-indigo-500">$0.00</span>
-                    </p>
-                    <!-- NEW: Total Purchasing Cost -->
-                    <p class="flex justify-between">
-                        <span class="font-medium text-gray-600">Total Purchasing Cost:</span>
-                        <span id="purchasingCostDisplay" class="font-bold text-gray-700">$0.00</span>
-                    </p>
-                    <hr class="my-2 border-gray-100">
-                    <p class="flex justify-between text-lg">
-                        <span class="font-extrabold text-gray-900">GRAND TOTAL COST:</span>
-                        <span id="totalCostDisplay" class="font-extrabold text-gray-900">$0.00</span>
-                    </p>
-                </div>
-                <p class="text-sm text-gray-500 mt-2">Simulated Days: <span id="daysDisplay">0</span></p>
-            </div>
+        <div class="canvas-wrap graph" id="graphWrap"><canvas id="inventoryCanvas" aria-label="Inventory level over time"></canvas></div>
+        <div class="panel-rest">
+        <div id="statusMessage" class="status" role="status" aria-live="polite"></div>
+        <div class="controls">
+          <button id="startBtn" class="primary" type="button">Start simulation</button>
+          <button id="stopBtn" type="button" disabled>Pause</button>
+          <button id="resetBtn" type="button">Reset</button>
+          <label class="speed" for="speed">Speed
+            <select id="speed">
+              <option value="0.5">0.5×</option>
+              <option value="1" selected>1×</option>
+              <option value="2">2×</option>
+              <option value="4">4×</option>
+            </select>
+          </label>
         </div>
-    </div>
+        </div>
+      </div>
+    </section>
 
-    <script>
-        // --- Core Simulation Constants ---
-        const CANVAS = document.getElementById('inventoryCanvas');
-        const CTX = CANVAS.getContext('2d');
-        const SIMULATION_SPEED_MS = 100; // Time per step (controls animation speed)
-        const STEPS_PER_DAY = 10; // Number of animation frames per simulated day
-        const MAX_DATA_POINTS = 100; // Max number of points to keep in history
-        const GRAPH_WINDOW_STEPS = 100; // Total X-axis span in steps (10 days visible)
-        const EVENT_DISPLAY_SECONDS = 2; // How long temporary messages last
-        const EVENT_DISPLAY_STEPS = EVENT_DISPLAY_SECONDS * STEPS_PER_DAY / (SIMULATION_SPEED_MS / 1000); 
+    <aside class="wh-col">
+      <div class="panel wh-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Warehouse floor</h2>
+            <p class="sub">Each box holds <strong id="upbLabel">5</strong> units. Partly empty boxes are faded.</p>
+          </div>
+        </div>
+        <div class="canvas-wrap wh" id="whWrap"><canvas id="warehouseCanvas" aria-label="Animated warehouse showing current stock"></canvas></div>
+        <div class="panel-rest">
+        <div class="legend">
+          <span><i class="sw box"></i>Stock on shelf</span>
+          <span><i class="sw back"></i>Backordered</span>
+          <span><i class="sw ropslot"></i>Reorder point slot</span>
+          <span><i class="sw rop"></i>ROP on gauge</span>
+        </div>
+        <div class="readouts">
+          <div class="readout"><div class="k">On hand</div><div class="v" id="rOnHand">150</div></div>
+          <div class="readout"><div class="k">On order</div><div class="v" id="rOnOrder">0</div></div>
+          <div class="readout"><div class="k">Status</div><div class="v" id="rStatus">Above ROP</div></div>
+        </div>
+        <p class="note">An order goes out when on-hand stock falls to the reorder point, marked by the red outlined slot on the shelves. Only one order is out at a time, so the marker goes hollow while a truck is on the way.</p>
+        <div class="transit">
+          <div class="transit-title">Trucks on the road</div>
+          <div id="transitList"><div class="empty">No orders in transit.</div></div>
+        </div>
+        </div>
+      </div>
+    </aside>
 
-        // --- Simulation State ---
-        let isRunning = false;
-        let animationFrameId = null;
-        let timeStep = 0; // Incremental step counter
-        let simulatedDays = 0;
-        let inventory = 150;
-        let currentDailyDemand = 0;
-        let pulseTime = 0; // For dot pulsing animation
+    <section class="settings">
+      <div class="panel">
+        <h2>Settings</h2>
+        <div class="settings-top">
+          <div class="policy-block">
+            <div class="group-label">Your policy</div>
+            <div class="field">
+              <label for="rop">Reorder point (ROP, units)</label>
+              <input type="number" id="rop" value="50" min="0" step="1" inputmode="decimal">
+              <p class="hint">Place an order when on-hand inventory falls to this level.</p>
+            </div>
+            <div class="field">
+              <label for="orderQuantity">Order quantity (Q, units)</label>
+              <input type="number" id="orderQuantity" value="100" min="1" step="1" inputmode="decimal">
+              <p class="hint">Size of each replenishment order.</p>
+            </div>
+          </div>
+          <div class="param-block">
+            <div class="group-label">Uncertainty</div>
+            <div class="grid-2">
+              <div class="field"><label for="demandMean">Demand mean (μ, units/day)</label><input type="number" id="demandMean" value="10" min="0.1" step="0.1"></div>
+              <div class="field"><label for="demandStdDev">Demand std dev (σ)</label><input type="number" id="demandStdDev" value="2" min="0" step="0.1"></div>
+              <div class="field"><label for="leadTimeMean">Lead time mean (μ, days)</label><input type="number" id="leadTimeMean" value="5" min="0.1" step="0.1"></div>
+              <div class="field"><label for="leadTimeStdDev">Lead time std dev (σ, days)</label><input type="number" id="leadTimeStdDev" value="1" min="0" step="0.1"></div>
+            </div>
+          </div>
+        </div>
+        <div class="param-block">
+          <div class="group-label">Costs</div>
+          <div class="grid-4">
+            <div class="field"><label for="holdingCost">Holding ($/unit/day)</label><input type="number" id="holdingCost" value="0.5" min="0" step="0.01"></div>
+            <div class="field"><label for="shortageCost">Shortage ($/unit/day)</label><input type="number" id="shortageCost" value="2" min="0" step="0.01"></div>
+            <div class="field"><label for="orderingCost">Ordering ($/order)</label><input type="number" id="orderingCost" value="100" min="0" step="1"></div>
+            <div class="field"><label for="unitCost">Unit cost ($)</label><input type="number" id="unitCost" value="50" min="0" step="1"></div>
+          </div>
+        </div>
+        <!-- ============================================================
+             REFERENCE VALUES (avg lead-time demand, safety stock, EOQ)
+             To hide this block for tests/exams, set
+             SHOW_REFERENCE_VALUES = false at the top of the script near the end of this file.
+             ============================================================ -->
+        <div class="param-block" id="referenceBlock">
+          <div class="group-label">Reference values from these settings</div>
+          <div class="stats">
+            <div class="readout"><div class="k">Avg lead-time demand</div><div class="v" id="refLTD">50</div></div>
+            <div class="readout"><div class="k">Safety stock at your ROP</div><div class="v" id="refSS">0</div></div>
+            <div class="readout"><div class="k">EOQ</div><div class="v" id="refEOQ">63</div></div>
+          </div>
+          <p class="note">Avg lead-time demand = demand mean × lead time mean. Safety stock = ROP − avg lead-time demand. EOQ = √(2 × daily demand × ordering cost ÷ holding cost).</p>
+        </div>
+      </div>
 
-        // Data history for plotting
-        const inventoryHistory = []; 
+      <div class="panel">
+        <h2>Accumulated costs</h2>
+        <div class="costs">
+          <div class="row"><span><i class="dot" style="background:var(--stock)"></i>Holding</span><span id="holdingCostDisplay">$0.00</span></div>
+          <div class="row"><span><i class="dot" style="background:var(--short)"></i>Shortage</span><span id="shortageCostDisplay">$0.00</span></div>
+          <div class="row"><span><i class="dot" style="background:var(--rop)"></i>Ordering</span><span id="orderingCostDisplay">$0.00</span></div>
+          <div class="row sub"><span>Operating subtotal</span><span id="operatingCostDisplay">$0.00</span></div>
+          <div class="row"><span><i class="dot" style="background:var(--muted)"></i>Purchasing (unit cost × Q)</span><span id="purchasingCostDisplay">$0.00</span></div>
+          <div class="row total"><span>Grand total</span><span id="totalCostDisplay">$0.00</span></div>
+        </div>
+        <div class="group-label">Replenishment cycles</div>
+        <div class="stats">
+          <div class="readout"><div class="k">Completed</div><div class="v" id="cyclesDisplay">0</div></div>
+          <div class="readout"><div class="k">No backorder</div><div class="v" id="cleanCyclesDisplay">0</div></div>
+          <div class="readout"><div class="k">Units backordered</div><div class="v" id="backorderUnitsDisplay">0</div></div>
+        </div>
+        <p class="note">A cycle runs from one delivery to the next and ends when the truck arrives. The share of cycles with no backorder is the cycle service level. Units backordered counts all demand that arrived while the shelf was empty.</p>
+        <div class="group-label">Run summary</div>
+        <div class="stats">
+          <div class="readout"><div class="k">Days</div><div class="v" id="daysDisplay">0</div></div>
+          <div class="readout"><div class="k">Orders</div><div class="v" id="ordersDisplay">0</div></div>
+          <div class="readout"><div class="k">Stockout time</div><div class="v" id="stockoutDisplay">0%</div></div>
+        </div>
+        <p class="note">Compare policies on the operating subtotal. Purchasing cost depends mostly on total demand, so it is similar for any policy that keeps up.</p>
+      </div>
+    </section>
+  </div>
+</div>
 
-        // Orders currently in transit
-        const orders = []; // { arrivalStep: number, quantity: number, placedAtInv: number, placedAtStep: number }
+<script>
+(() => {
+  'use strict';
 
-        // Messaging State
-        let currentStatusMessage = "Click \"Start Simulation\" to begin."; // Persistent daily/status message
-        let eventMessage = ""; // Temporary event message (ROP hit, Delivery)
-        let eventMessageExpiryStep = 0; // Time step when eventMessage clears
+  // ==================================================================
+  //  TEACHING SWITCH: REFERENCE VALUES
+  //  true  = show "Reference values from these settings" in the
+  //          Settings box (avg lead-time demand, safety stock at your
+  //          ROP, and EOQ).
+  //  false = hide that block completely, e.g. for tests or exams,
+  //          so students must work these values out themselves.
+  //  Change only the word after the "=" sign, then save the file.
+  // ==================================================================
+  const SHOW_REFERENCE_VALUES = true;
 
-        // Costs
-        let totalHoldingCost = 0;
-        let totalOrderingCost = 0;
-        let totalShortageCost = 0;
-        let totalPurchasingCost = 0; // NEW: Initialize purchasing cost
+  // ---------- Constants ----------
+  const STEPS_PER_DAY = 10;          // simulation steps per day
+  const BASE_STEP_MS = 100;          // real time per step at 1x speed
+  const GRAPH_WINDOW_STEPS = 100;    // 10 days visible on the graph
+  const MAX_HISTORY = 160;           // points kept (a bit more than the visible window)
+  const EVENT_DISPLAY_MS = 2500;     // how long event messages stay (real time)
+  const INITIAL_INVENTORY = 150;
+  const WH_COLS = 8, WH_ROWS = 6, WH_SLOTS = WH_COLS * WH_ROWS;
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-        // --- DOM Elements ---
-        const startBtn = document.getElementById('startBtn');
-        const stopBtn = document.getElementById('stopBtn');
-        const statusMessage = document.getElementById('statusMessage');
+  const $ = (id) => document.getElementById(id);
+  const fmt$ = (v) => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtU = (v) => (Number.isInteger(v) || Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1));
 
-        // --- Utility Functions ---
+  // ---------- Theme tokens for canvas ----------
+  let T = {};
+  function readTokens() {
+    const cs = getComputedStyle(document.documentElement);
+    const g = (n) => cs.getPropertyValue(n).trim();
+    T = { fg: g('--fg'), muted: g('--muted'), line: g('--line'), surface: g('--surface'), surface2: g('--surface-2'),
+      stock: g('--stock'), short: g('--short'), rop: g('--rop'), deliver: g('--deliver'),
+      rack: g('--rack'), box: g('--box'), boxEdge: g('--box-edge'),
+      mono: g('--font-mono'), body: g('--font-body') };
+  }
+  readTokens();
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readTokens);
+  new MutationObserver(readTokens).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-        /** Generates a random number from a normal distribution using the Box-Muller transform. */
-        function normalRandom(mean, stdDev) {
-            let u = 0, v = 0;
-            while (u === 0) u = Math.random(); 
-            while (v === 0) v = Math.random();
-            const z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
-            return Math.max(0, mean + stdDev * z); 
+  // ---------- Parameters ----------
+  const PARAM_IDS = ['rop', 'orderQuantity', 'demandMean', 'demandStdDev', 'leadTimeMean', 'leadTimeStdDev', 'holdingCost', 'shortageCost', 'orderingCost', 'unitCost'];
+  function getParams() {
+    const v = (id) => parseFloat($(id).value);
+    return { ROP: v('rop'), Q: v('orderQuantity'), demandMean: v('demandMean'), demandStdDev: v('demandStdDev'),
+      leadTimeMean: v('leadTimeMean'), leadTimeStdDev: v('leadTimeStdDev'), holdingCost: v('holdingCost'),
+      shortageCost: v('shortageCost'), orderingCost: v('orderingCost'), unitCost: v('unitCost') };
+  }
+  function validate(P) {
+    if (Object.values(P).some((x) => !Number.isFinite(x))) return 'Every field needs a number.';
+    if (P.ROP < 0) return 'Reorder point can’t be negative.';
+    if (P.Q <= 0) return 'Order quantity must be greater than 0.';
+    if (P.demandMean <= 0 || P.leadTimeMean <= 0) return 'Demand mean and lead time mean must be greater than 0.';
+    if (P.demandStdDev < 0 || P.leadTimeStdDev < 0) return 'Standard deviations can’t be negative.';
+    if (P.holdingCost < 0 || P.shortageCost < 0 || P.orderingCost < 0 || P.unitCost < 0) return 'Costs can’t be negative.';
+    return null;
+  }
+
+  /** Normal random via Box–Muller, truncated at 0 (no negative demand or lead time). */
+  function normalRandom(mean, sd) {
+    let u = 0, v = 0;
+    while (u === 0) u = Math.random();
+    while (v === 0) v = Math.random();
+    const z = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    return Math.max(0, mean + sd * z);
+  }
+
+  // ---------- State ----------
+  const S = {};
+  let orderSeq = 0;
+  function freshState() {
+    Object.assign(S, {
+      running: false, timeStep: 0, day: 0, inventory: INITIAL_INVENTORY, dailyDemand: 0,
+      history: [{ x: 0, y: INITIAL_INVENTORY }],
+      orders: [],       // in transit: { id, qty, placedStep, arrivalStep, leadDays, placedInv }
+      arrivals: [],     // recently arrived (for ✅ on graph and truck at dock)
+      holding: 0, shortage: 0, ordering: 0, purchasing: 0, ordersPlaced: 0, stockoutSteps: 0,
+      cyclesDone: 0, cyclesClean: 0, backorderUnits: 0, cycleHadBackorder: false,
+      dayMsg: 'Ready. Press <strong>Start simulation</strong> to begin with 150 units on hand.',
+      event: null,      // { html, cls, until }
+      error: null,
+    });
+    orderSeq = 0;
+  }
+  const onOrder = () => S.orders.reduce((a, o) => a + o.qty, 0);
+
+  // ---------- One simulation step ----------
+  function step() {
+    const P = getParams();
+    const err = validate(P);
+    if (err) { S.error = err; pause(); return; }
+    S.error = null;
+
+    // 1. New day: draw the day's demand
+    if (S.timeStep % STEPS_PER_DAY === 0) {
+      S.dailyDemand = normalRandom(P.demandMean, P.demandStdDev);
+      S.day = S.timeStep / STEPS_PER_DAY;
+      const inv = S.inventory >= 0 ? `Started the day with ${fmtU(S.inventory)} units` : `<span class="ev-err">Started the day ${fmtU(-S.inventory)} units short</span>`;
+      S.dayMsg = `<strong>Day ${S.day}</strong> · Demand today ${S.dailyDemand.toFixed(1)} units · ${inv}`;
+    }
+
+    // 2. Depletion with a little within-day jitter
+    const base = S.dailyDemand / STEPS_PER_DAY;
+    const jr = P.demandStdDev / STEPS_PER_DAY;
+    const use = Math.max(0, base + Math.random() * jr - jr / 2);
+    const before = S.inventory;
+    S.inventory -= use;
+    // Backordered units = demand that arrived while the shelf was empty
+    const newlyShort = Math.max(0, -S.inventory) - Math.max(0, -before);
+    if (newlyShort > 0) S.backorderUnits += newlyShort;
+    if (S.inventory < 0) S.cycleHadBackorder = true;
+
+    // 3. Costs for this step
+    const dt = 1 / STEPS_PER_DAY;
+    if (S.inventory > 0) S.holding += S.inventory * P.holdingCost * dt;
+    else if (S.inventory < 0) { S.shortage += -S.inventory * P.shortageCost * dt; S.stockoutSteps++; }
+
+    // 4. Reorder when ON-HAND inventory falls to the ROP (basic model: one order outstanding at a time)
+    if (S.inventory <= P.ROP && S.orders.length === 0) {
+      const leadDays = normalRandom(P.leadTimeMean, P.leadTimeStdDev);
+      const leadSteps = Math.max(1, Math.ceil(leadDays * STEPS_PER_DAY));
+      S.orders.push({ id: ++orderSeq, qty: P.Q, placedStep: S.timeStep, arrivalStep: S.timeStep + leadSteps, leadDays, placedInv: S.inventory });
+      S.ordering += P.orderingCost;
+      S.purchasing += P.unitCost * P.Q;
+      S.ordersPlaced++;
+      WH.flashAt = performance.now();
+      setEvent(`Reorder point reached. Ordered ${P.Q} units; lead time ${leadDays.toFixed(1)} days.`, 'ev-rop');
+    }
+
+    // 5. Deliveries
+    for (let i = S.orders.length - 1; i >= 0; i--) {
+      const o = S.orders[i];
+      if (S.timeStep >= o.arrivalStep) {
+        const backorder = Math.max(0, -S.inventory);
+        S.inventory += o.qty;
+        S.orders.splice(i, 1);
+        S.arrivals.push({ ...o, arrivedStep: S.timeStep });
+        // A replenishment cycle ends at each delivery
+        S.cyclesDone++;
+        if (!S.cycleHadBackorder) S.cyclesClean++;
+        S.cycleHadBackorder = S.inventory < 0;
+        setEvent(backorder > 0
+          ? `Delivery arrived: +${o.qty} units, ${fmtU(Math.min(backorder, o.qty))} went straight to waiting customers.`
+          : `Delivery arrived: +${o.qty} units.`, 'ev-del');
+      }
+    }
+
+    // 6. History and counters
+    S.history.push({ x: S.timeStep + 1, y: S.inventory });
+    if (S.history.length > MAX_HISTORY) S.history.shift();
+    S.timeStep++;
+    S.arrivals = S.arrivals.filter((a) => S.timeStep - a.arrivedStep <= STEPS_PER_DAY);
+  }
+
+  function setEvent(text, cls) { S.event = { html: text, cls, until: performance.now() + EVENT_DISPLAY_MS }; }
+
+  // ---------- DOM updates ----------
+  const statusEl = $('statusMessage');
+  let lastStatusHtml = '';
+  function renderStatus(now) {
+    if (S.event && now > S.event.until) S.event = null;
+    let html = `<div>${S.dayMsg}</div>`;
+    if (S.error) html += `<div class="ev-err">Can’t run: ${S.error}</div>`;
+    else if (S.event) html += `<div class="${S.event.cls}">${S.event.html}</div>`;
+    if (!S.running && S.timeStep > 0 && !S.error) html += `<div class="tag">Paused</div>`;
+    if (html !== lastStatusHtml) { statusEl.innerHTML = html; lastStatusHtml = html; }
+    statusEl.classList.toggle('is-paused', !S.running && S.timeStep > 0 && !S.error);
+    statusEl.classList.toggle('is-error', !!S.error);
+  }
+
+  let lastTransitKey = '';
+  function renderNumbers() {
+    const op = S.holding + S.shortage + S.ordering;
+    $('holdingCostDisplay').textContent = fmt$(S.holding);
+    $('shortageCostDisplay').textContent = fmt$(S.shortage);
+    $('orderingCostDisplay').textContent = fmt$(S.ordering);
+    $('operatingCostDisplay').textContent = fmt$(op);
+    $('purchasingCostDisplay').textContent = fmt$(S.purchasing);
+    $('totalCostDisplay').textContent = fmt$(op + S.purchasing);
+    $('daysDisplay').textContent = Math.floor(S.timeStep / STEPS_PER_DAY);
+    $('ordersDisplay').textContent = S.ordersPlaced;
+    $('cyclesDisplay').textContent = S.cyclesDone;
+    $('cleanCyclesDisplay').textContent = S.cyclesDone ? `${S.cyclesClean} (${Math.round(100 * S.cyclesClean / S.cyclesDone)}%)` : '0';
+    $('backorderUnitsDisplay').textContent = fmtU(S.backorderUnits);
+    $('stockoutDisplay').textContent = S.timeStep ? (100 * S.stockoutSteps / S.timeStep).toFixed(1) + '%' : '0%';
+
+    const oo = onOrder();
+    const oh = $('rOnHand');
+    oh.textContent = fmtU(S.inventory);
+    oh.classList.toggle('neg', S.inventory < 0);
+    $('rOnOrder').textContent = fmtU(oo);
+    const st = $('rStatus');
+    st.textContent = S.inventory < 0 ? 'Stockout' : S.orders.length ? 'On order' : 'Above ROP';
+    st.classList.toggle('neg', S.inventory < 0);
+
+    const list = $('transitList');
+    const key = S.orders.map((o) => o.id + ':' + Math.round(100 * (S.timeStep - o.placedStep) / (o.arrivalStep - o.placedStep))).join('|');
+    if (key !== lastTransitKey) {
+      lastTransitKey = key;
+      if (!S.orders.length) list.innerHTML = '<div class="empty">No orders in transit.</div>';
+      else list.innerHTML = S.orders.map((o) => {
+        const p = Math.min(1, Math.max(0, (S.timeStep - o.placedStep) / (o.arrivalStep - o.placedStep)));
+        const left = Math.max(0, (o.arrivalStep - S.timeStep) / STEPS_PER_DAY);
+        return `<div class="truck-row"><div class="meta"><span>Order #${o.id} · ${o.qty} units</span><span>${left.toFixed(1)} d left</span></div><div class="bar"><i style="width:${(p * 100).toFixed(1)}%"></i></div></div>`;
+      }).join('');
+    }
+  }
+
+  function renderReference() {
+    if (!SHOW_REFERENCE_VALUES) return;   // see TEACHING SWITCH at the top of the script
+    const P = getParams();
+    const ok = (x) => Number.isFinite(x);
+    const ltd = P.demandMean * P.leadTimeMean;
+    $('refLTD').textContent = ok(ltd) ? fmtU(ltd) : '—';
+    const ss = P.ROP - ltd, ssEl = $('refSS');
+    ssEl.textContent = ok(ss) ? fmtU(ss) : '—';
+    ssEl.classList.toggle('neg', ok(ss) && ss < 0);
+    const eoq = P.holdingCost > 0 ? Math.sqrt(2 * P.demandMean * P.orderingCost / P.holdingCost) : NaN;
+    $('refEOQ').textContent = ok(eoq) ? fmtU(eoq) : '—';
+  }
+
+  // ---------- Canvas helpers ----------
+  function fitCanvas(canvas) {
+    const r = canvas.parentElement.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.round(r.width * dpr));
+    canvas.height = Math.max(1, Math.round(r.height * dpr));
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx, w: r.width, h: r.height };
+  }
+  function niceStep(range, count) {
+    const raw = range / count;
+    const p = Math.pow(10, Math.floor(Math.log10(raw)));
+    const f = raw / p;
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+  }
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function drawEmoji(ctx, ch, x, y, size, flip, alpha = 1) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(x, y);
+    if (flip) ctx.scale(-1, 1);
+    ctx.font = `${size}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(ch, 0, 0);
+    ctx.restore();
+  }
+
+  // ---------- Graph ----------
+  const G = { canvas: $('inventoryCanvas'), ctx: null, w: 0, h: 0 };
+  function resizeGraph() { Object.assign(G, fitCanvas(G.canvas)); }
+
+  function drawGraph(now) {
+    const { ctx, w: W, h: H } = G;
+    if (!ctx) return;
+    ctx.clearRect(0, 0, W, H);
+    const P = getParams();
+    const rop = Number.isFinite(P.ROP) ? P.ROP : 0;
+    const q = Number.isFinite(P.Q) ? P.Q : 0;
+    const hist = S.history;
+    const cur = hist[hist.length - 1];
+
+    // Vertical scale is borrowed from the warehouse panel (both canvases are the same height and
+    // start at the same y): zero sits on the bottom shelf beam and full shelf capacity on the top
+    // beam, so the chart's 0, ROP line and stock level line up with the gauge beside it.
+    // If stock overflows the shelves or a shortage runs deep, the scale shrinks but zero stays put.
+    const pl = 46, pr = 14, pb = 30;
+    const pt = WH.L ? WH.L.top : 22;
+    const zeroAt = WH.L ? WH.L.rackBottom : H - 86;
+    const plotW = W - pl - pr, plotH = H - pt - pb;
+    const ys = hist.map((d) => d.y);
+    const capacity = WH_SLOTS * WH.upb;
+    let scale = (zeroAt - pt) / Math.max(capacity, ...ys, rop + q, 10);
+    const lowest = Math.min(...ys, 0);
+    if (lowest < 0) scale = Math.min(scale, (H - pb - 6 - zeroAt) / -lowest);
+    const maxY = (zeroAt - pt) / scale;
+    const minY = -(H - pb - zeroAt) / scale;
+    const toY = (v) => zeroAt - v * scale;
+    const minT = cur.x - GRAPH_WINDOW_STEPS * 0.7;
+    const maxT = cur.x + GRAPH_WINDOW_STEPS * 0.3;
+    const toX = (t) => pl + (t - minT) / (maxT - minT) * plotW;
+
+    // Y grid + labels
+    const ystep = niceStep(maxY - minY, 5);
+    ctx.font = `11px ${T.mono}`;
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 1;
+    for (let v = Math.ceil(minY / ystep) * ystep; v <= maxY; v += ystep) {
+      const y = Math.round(toY(v)) + 0.5;
+      ctx.strokeStyle = T.line; ctx.globalAlpha = v === 0 ? 1 : 0.6;
+      ctx.beginPath(); ctx.moveTo(pl, y); ctx.lineTo(W - pr, y); ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = T.muted; ctx.fillText(Math.round(v), pl - 8, y);
+    }
+    // zero line
+    const zy = Math.round(toY(0)) + 0.5;
+    ctx.strokeStyle = T.muted; ctx.lineWidth = 1.25;
+    ctx.beginPath(); ctx.moveTo(pl, zy); ctx.lineTo(W - pr, zy); ctx.stroke();
+
+    // Day grid + labels
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    const labelEvery = plotW < 420 ? 2 : 1;
+    for (let t = Math.ceil(minT / STEPS_PER_DAY) * STEPS_PER_DAY; t <= maxT; t += STEPS_PER_DAY) {
+      if (t < 0) continue;
+      const x = Math.round(toX(t)) + 0.5;
+      ctx.strokeStyle = T.line; ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, pt); ctx.lineTo(x, H - pb); ctx.stroke();
+      ctx.globalAlpha = 1;
+      const d = t / STEPS_PER_DAY;
+      if (d % labelEvery === 0) { ctx.fillStyle = T.muted; ctx.fillText(`Day ${d}`, x, H - pb + 18); }
+    }
+
+    ctx.save();
+    ctx.beginPath(); ctx.rect(pl, pt - 6, plotW, plotH + 12); ctx.clip();
+
+    // "Now" marker
+    const nx = toX(cur.x);
+    ctx.strokeStyle = T.muted; ctx.globalAlpha = 0.5; ctx.setLineDash([2, 4]);
+    ctx.beginPath(); ctx.moveTo(nx, pt); ctx.lineTo(nx, H - pb); ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+
+    // ROP line
+    const ry = toY(rop);
+    ctx.strokeStyle = T.rop; ctx.lineWidth = 1.5; ctx.setLineDash([6, 5]);
+    ctx.beginPath(); ctx.moveTo(pl, ry); ctx.lineTo(W - pr, ry); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = T.rop; ctx.font = `600 11px ${T.mono}`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.fillText(`ROP ${rop}`, pl + 6, ry - 3);
+
+    // Inventory line: area + stroke, blue above zero, red below
+    if (hist.length > 1) {
+      const path = new Path2D();
+      hist.forEach((d, i) => (i ? path.lineTo(toX(d.x), toY(d.y)) : path.moveTo(toX(d.x), toY(d.y))));
+      const area = new Path2D(path);
+      area.lineTo(toX(cur.x), zy); area.lineTo(toX(hist[0].x), zy); area.closePath();
+      const bands = [[pt - 6, zy - (pt - 6), T.stock], [zy, H - zy, T.short]];
+      for (const [y0, hh, col] of bands) {
+        ctx.save();
+        ctx.beginPath(); ctx.rect(pl, y0, plotW, hh); ctx.clip();
+        ctx.fillStyle = col; ctx.globalAlpha = 0.1; ctx.fill(area); ctx.globalAlpha = 1;
+        ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+        ctx.stroke(path);
+        ctx.restore();
+      }
+    }
+
+    // Orders: transit path, +Q label, truck / arrival check
+    const drawOrder = (o, arrived) => {
+      const sx = toX(o.placedStep), ex = toX(o.arrivalStep), oy = toY(o.placedInv);
+      ctx.strokeStyle = T.deliver; ctx.lineWidth = 2; ctx.setLineDash([7, 6]);
+      ctx.globalAlpha = arrived ? 0.5 : 1;
+      ctx.beginPath(); ctx.moveTo(sx, oy); ctx.lineTo(ex, oy); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(sx, oy, 3.5, 0, Math.PI * 2); ctx.fillStyle = T.deliver; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(ex, oy - 7); ctx.lineTo(ex, oy + 7); ctx.stroke();
+      ctx.fillStyle = T.deliver; ctx.font = `600 12px ${T.mono}`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillText(`+${o.qty}`, sx, oy - 8);
+      ctx.globalAlpha = 1;
+      if (!arrived) {
+        const tx = toX(Math.max(minT, Math.min(cur.x, o.arrivalStep)));
+        drawEmoji(ctx, '🚚', tx, oy - 16, 30, true);
+      } else {
+        const fade = 1 - (S.timeStep - o.arrivedStep) / STEPS_PER_DAY;
+        drawEmoji(ctx, '✅', ex, oy - 16, 22, false, Math.max(0, fade));
+      }
+    };
+    S.orders.forEach((o) => drawOrder(o, false));
+    S.arrivals.forEach((o) => drawOrder(o, true));
+
+    // Current-level dot + label
+    const cx = toX(cur.x), cy = toY(cur.y);
+    const pulse = reduceMotion ? 1 : 1 + Math.sin(now / 160) * 0.18;
+    const col = cur.y < 0 ? T.short : T.stock;
+    ctx.fillStyle = col; ctx.globalAlpha = 0.18;
+    ctx.beginPath(); ctx.arc(cx, cy, 11 * pulse, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.font = `600 13px ${T.mono}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    const label = `${cur.y.toFixed(1)} units`;
+    const ly = Math.min(Math.max(cy - 18, pt + 8), H - pb - 8);
+    ctx.fillText(label, cx + 12, ly);
+    ctx.restore();
+  }
+
+  // ---------- Warehouse panel ----------
+  const WH = { canvas: $('warehouseCanvas'), ctx: null, w: 0, h: 0, upb: 5, count: 0, back: 0, particles: [], inFlight: new Set(), L: null };
+
+  function resizeWarehouse() {
+    Object.assign(WH, fitCanvas(WH.canvas));
+    const { w, h } = WH;
+    const pad = 14;
+    const gaugeX = pad + 34, gaugeW = 12;
+    const top = 22, floorY = h - 74, rackBottom = floorY - 12;
+    const rackX0 = gaugeX + gaugeW + 18, rackX1 = w - pad;
+    const aisle = Math.max(10, (rackX1 - rackX0) * 0.05);
+    const cellW = (rackX1 - rackX0 - aisle) / WH_COLS;
+    const cellH = (rackBottom - top) / WH_ROWS;
+    const bw = Math.min(cellW * 0.74, 40);
+    const bh = Math.min(cellH * 0.66, bw * 0.82);
+    const floorX0 = gaugeX + gaugeW + 10; // floor starts right of the gauge, which extends down past the bottom beam
+    WH.L = { pad, gaugeX, gaugeW, top, floorY, floorX0, rackBottom, rackX0, rackX1, aisle, cellW, cellH, bw, bh,
+      dock: { x: floorX0 + 34, y: floorY + 34 }, door: { x: w - pad - 26, y: floorY + 34 } };
+  }
+
+  function slotXY(i) {
+    const L = WH.L;
+    const row = Math.floor(i / WH_COLS), col = i % WH_COLS;
+    const x = L.rackX0 + col * L.cellW + (col >= WH_COLS / 2 ? L.aisle : 0) + L.cellW / 2;
+    const beam = L.rackBottom - row * L.cellH;
+    return { x, y: beam - L.bh / 2 - 2 };
+  }
+
+  function chooseUnitsPerBox() {
+    const P = getParams();
+    const target = Math.max(INITIAL_INVENTORY, (Number.isFinite(P.ROP) ? P.ROP : 0) + (Number.isFinite(P.Q) ? P.Q : 0)) * 1.2 / WH_SLOTS;
+    const p = Math.pow(10, Math.floor(Math.log10(Math.max(target, 1))));
+    const f = target / p;
+    WH.upb = Math.max(1, (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p);
+    $('upbLabel').textContent = WH.upb;
+  }
+
+  const boxCount = (inv) => (inv > 0 ? Math.ceil(inv / WH.upb - 1e-9) : 0);
+  const backCount = (inv) => (inv < 0 ? Math.ceil(-inv / WH.upb - 1e-9) : 0);
+
+  function syncWarehouse(silent) {
+    const inv = S.inventory;
+    const nc = boxCount(inv), nb = backCount(inv);
+    const now = performance.now();
+    if (silent || reduceMotion) {
+      WH.particles.length = 0; WH.inFlight.clear();
+    } else {
+      if (nc < WH.count) {
+        for (let i = WH.count - 1; i >= nc; i--) {
+          if (i >= WH_SLOTS) continue;
+          if (WH.inFlight.has(i)) {
+            WH.inFlight.delete(i);
+            WH.particles = WH.particles.filter((p) => !(p.kind === 'in' && p.target === i));
+          } else {
+            WH.particles.push({ kind: 'out', from: slotXY(i), to: WH.L.door, start: now, dur: 900 });
+          }
         }
-
-        /** Retrieves all dynamic simulation parameters from the UI inputs. */
-        function getParams() {
-            return {
-                // User Decisions
-                ROP: parseFloat(document.getElementById('rop').value),
-                Q: parseFloat(document.getElementById('orderQuantity').value),
-                // Admin Parameters
-                demandMean: parseFloat(document.getElementById('demandMean').value),
-                demandStdDev: parseFloat(document.getElementById('demandStdDev').value),
-                leadTimeMean: parseFloat(document.getElementById('leadTimeMean').value),
-                leadTimeStdDev: parseFloat(document.getElementById('leadTimeStdDev').value),
-                holdingCost: parseFloat(document.getElementById('holdingCost').value),
-                orderingCost: parseFloat(document.getElementById('orderingCost').value),
-                shortageCost: parseFloat(document.getElementById('shortageCost').value),
-                unitCost: parseFloat(document.getElementById('unitCost').value),
-            };
+      } else if (nc > WH.count) {
+        let k = 0;
+        for (let i = WH.count; i < nc; i++) {
+          if (i >= WH_SLOTS) break;
+          WH.inFlight.add(i);
+          WH.particles.push({ kind: 'in', target: i, from: WH.L.dock, to: slotXY(i), start: now + k * 45, dur: 750 });
+          k++;
         }
+      }
+      if (nb < WH.back) {
+        const n = Math.min(WH.back - nb, 10);
+        for (let k = 0; k < n; k++) WH.particles.push({ kind: 'fill', from: WH.L.dock, to: WH.L.door, start: now + k * 70, dur: 1000 });
+      }
+    }
+    WH.count = nc; WH.back = nb;
+  }
 
-        /** Updates the cost display on the UI. */
-        function updateCostDisplay() {
-            // Include Purchasing Cost in the grand total calculation
-            const totalCost = totalHoldingCost + totalOrderingCost + totalShortageCost + totalPurchasingCost; 
-            
-            document.getElementById('holdingCostDisplay').textContent = `$${totalHoldingCost.toFixed(2)}`;
-            document.getElementById('shortageCostDisplay').textContent = `$${totalShortageCost.toFixed(2)}`;
-            document.getElementById('orderingCostDisplay').textContent = `$${totalOrderingCost.toFixed(2)}`;
-            document.getElementById('purchasingCostDisplay').textContent = `$${totalPurchasingCost.toFixed(2)}`; // NEW: Purchasing cost display
-            document.getElementById('totalCostDisplay').textContent = `$${totalCost.toFixed(2)}`;
-            document.getElementById('daysDisplay').textContent = simulatedDays;
-        }
-        
-        /** Updates the status message display based on the current state. */
-        function updateStatusDisplay(isPaused = false) {
-            let message = currentStatusMessage;
-            
-            if (eventMessage) {
-                // Show the event message above the current status message
-                message = `${currentStatusMessage}<br>${eventMessage}`;
-            }
+  function drawBox(ctx, x, y, alpha, style) {
+    const { bw, bh } = WH.L;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    roundRect(ctx, x - bw / 2, y - bh / 2, bw, bh, 2.5);
+    if (style === 'back') {
+      ctx.setLineDash([3, 3]); ctx.strokeStyle = T.short; ctx.lineWidth = 1.5; ctx.stroke();
+    } else {
+      ctx.fillStyle = style === 'fill' ? T.deliver : T.box; ctx.fill();
+      ctx.strokeStyle = style === 'fill' ? T.deliver : T.boxEdge; ctx.lineWidth = 1; ctx.stroke();
+      if (style !== 'fill') {
+        ctx.beginPath(); ctx.moveTo(x, y - bh / 2); ctx.lineTo(x, y - bh / 2 + bh * 0.45);
+        ctx.strokeStyle = T.boxEdge; ctx.globalAlpha = alpha * 0.8; ctx.lineWidth = 2; ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
 
-            if (isPaused) {
-                statusMessage.className = 'mt-4 p-3 rounded-lg text-white bg-red-600 text-center font-medium';
-                message += ` <br> <span class="font-extrabold">(PAUSED)</span>`;
-            } else {
-                statusMessage.className = 'mt-4 p-3 rounded-lg text-center font-medium bg-gray-100 text-gray-800';
-            }
+  function drawWarehouse(now) {
+    const { ctx, w, h, L } = WH;
+    if (!ctx || !L) return;
+    syncWarehouse(false);
+    ctx.clearRect(0, 0, w, h);
+    const P = getParams();
+    const rop = Number.isFinite(P.ROP) ? P.ROP : 0;
 
-            statusMessage.innerHTML = message;
-        }
+    // Floor strip + doors
+    roundRect(ctx, L.floorX0, L.floorY, w - L.pad - L.floorX0, h - L.floorY - 10, 6);
+    ctx.fillStyle = T.surface; ctx.fill(); ctx.strokeStyle = T.line; ctx.lineWidth = 1; ctx.stroke();
+    ctx.font = `600 10px ${T.mono}`; ctx.fillStyle = T.muted; ctx.textBaseline = 'top';
+    ctx.textAlign = 'left'; ctx.fillText('INBOUND DOCK', L.floorX0 + 8, L.floorY + 6);
+    ctx.textAlign = 'right'; ctx.fillText('CUSTOMERS', w - L.pad - 8, L.floorY + 6);
+    ctx.fillStyle = T.deliver; ctx.fillRect(L.floorX0, L.floorY + 20, 4, h - L.floorY - 36);
+    ctx.fillStyle = T.muted; ctx.fillRect(w - L.pad - 4, L.floorY + 20, 4, h - L.floorY - 36);
 
+    // Racks
+    ctx.strokeStyle = T.rack;
+    const halves = [[L.rackX0, L.rackX0 + L.cellW * WH_COLS / 2], [L.rackX0 + L.cellW * WH_COLS / 2 + L.aisle, L.rackX1]];
+    for (const [x0, x1] of halves) {
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(x0, L.top - 6); ctx.lineTo(x0, L.rackBottom + 6); ctx.moveTo(x1, L.top - 6); ctx.lineTo(x1, L.rackBottom + 6); ctx.stroke();
+      ctx.lineWidth = 2;
+      for (let r = 0; r <= WH_ROWS; r++) {
+        const y = Math.round(L.rackBottom - r * L.cellH) + 0.5;
+        ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+      }
+    }
 
-        // --- Simulation Logic ---
+    // Boxes on shelves
+    const exact = S.inventory > 0 ? S.inventory / WH.upb : 0;
+    const frac = exact - Math.floor(exact);
+    const shown = Math.min(WH.count, WH_SLOTS);
+    for (let i = 0; i < shown; i++) {
+      if (WH.inFlight.has(i)) continue;
+      const partial = i === WH.count - 1 && frac > 1e-6;
+      const p = slotXY(i);
+      drawBox(ctx, p.x, p.y, partial ? 0.3 + 0.7 * frac : 1, 'stock');
+    }
+    if (WH.count > WH_SLOTS) {
+      ctx.font = `600 11px ${T.mono}`; ctx.fillStyle = T.muted; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+      ctx.fillText(`+${WH.count - WH_SLOTS} boxes in overflow`, L.rackX1, L.top - 8);
+    }
 
-        /** Performs all state updates for one time step. */
-        function updateState() {
-            const P = getParams();
+    // Gauge on the SAME scale as the shelves: 0 = bottom beam, full capacity = top beam.
+    // Each shelf row holds WH_COLS boxes, so each row is exactly 1/WH_ROWS of the gauge.
+    // Shortage continues below the bottom beam at the same units-per-pixel, down into the floor.
+    const gMax = WH_SLOTS * WH.upb;
+    const ppu = (L.rackBottom - L.top) / gMax;
+    const gBottom = h - 12;
+    const gy = (v) => (v >= 0 ? L.rackBottom - Math.min(v, gMax) * ppu : Math.min(gBottom, L.rackBottom - v * ppu));
+    const y0 = L.rackBottom;
+    const gr = L.gaugeX + L.gaugeW;
 
-            // 1. New Day Logic (Generate New Demand)
-            if (timeStep % STEPS_PER_DAY === 0) {
-                currentDailyDemand = normalRandom(P.demandMean, P.demandStdDev);
-                simulatedDays = Math.floor(timeStep / STEPS_PER_DAY);
-                
-                const inventoryStatus = inventory > 0 ? `Inventory: ${inventory.toFixed(1)} units` : `Shortage: ${Math.abs(inventory).toFixed(1)} units`;
-                currentStatusMessage = `<span class="font-bold text-gray-800">Day ${simulatedDays}:</span> Demand: ${currentDailyDemand.toFixed(1)} units. ${inventoryStatus}.`;
-            }
+    const yr = gy(rop);
 
-            // 2. Inventory Depletion (With Added Uncertainty Jitter)
-            const baseStepDemand = currentDailyDemand / STEPS_PER_DAY;
-            
-            // Add a small, high-frequency random component to simulate uncertain usage timing
-            const jitterRange = (1.0 * P.demandStdDev) / STEPS_PER_DAY; 
-            const jitter = (Math.random() * jitterRange) - (jitterRange / 2); 
-            
-            const effectiveStepDemand = Math.max(0, baseStepDemand + jitter); 
+    // Reorder-point slot marker. Boxes fill row by row, so the trigger is a box, not a height:
+    // the order fires the moment the box in this slot becomes the top box on the shelf.
+    {
+      const k = Math.min(WH_SLOTS - 1, Math.ceil(rop / WH.upb - 1e-9) - 1);
+      const waiting = S.orders.length > 0;
+      const p = k >= 0 ? slotXY(k) : { x: slotXY(0).x, y: L.rackBottom - 6 };
+      const mw = L.bw + 8, mh = k >= 0 ? L.bh + 8 : 10;
+      const flash = WH.flashAt ? Math.max(0, 1 - (now - WH.flashAt) / 1200) : 0;
+      ctx.save();
+      if (flash > 0 && !reduceMotion) {
+        roundRect(ctx, p.x - mw / 2 - 4 * flash, p.y - mh / 2 - 4 * flash, mw + 8 * flash, mh + 8 * flash, 5);
+        ctx.fillStyle = T.short; ctx.globalAlpha = 0.25 * flash; ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      roundRect(ctx, p.x - mw / 2, p.y - mh / 2, mw, mh, 4);
+      ctx.strokeStyle = T.short; ctx.lineWidth = 2.25;
+      if (waiting) { ctx.setLineDash([4, 3]); ctx.globalAlpha = 0.6; }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Flag + label above the slot
+      const fy = p.y - mh / 2;
+      ctx.beginPath(); ctx.moveTo(p.x - 5, fy - 1); ctx.lineTo(p.x + 5, fy - 1); ctx.lineTo(p.x, fy + 5); ctx.closePath();
+      ctx.fillStyle = T.short; ctx.fill();
+      const text = waiting ? 'ROP · order on the way' : `ROP ${rop}`;
+      ctx.font = `600 10px ${T.mono}`; ctx.textBaseline = 'bottom';
+      const tw = ctx.measureText(text).width;
+      let tx = p.x - tw / 2;
+      tx = Math.max(L.rackX0, Math.min(L.rackX1 - tw, tx));
+      roundRect(ctx, tx - 4, fy - 16, tw + 8, 14, 3);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = T.surface; ctx.fill();
+      ctx.fillStyle = T.short; ctx.globalAlpha = waiting ? 0.75 : 1; ctx.textAlign = 'left';
+      ctx.fillText(text, tx, fy - 3);
+      ctx.restore();
+    }
 
-            inventory -= effectiveStepDemand;
-            
-            // Check event message expiry and clear if necessary
-            if (eventMessage && timeStep >= eventMessageExpiryStep) {
-                eventMessage = ""; 
-            }
+    // Stock track (shelf height) and shortage track (below the beam)
+    roundRect(ctx, L.gaugeX, L.top, L.gaugeW, y0 - L.top, 4);
+    ctx.fillStyle = T.surface; ctx.fill(); ctx.strokeStyle = T.line; ctx.lineWidth = 1; ctx.stroke();
+    ctx.save();
+    ctx.setLineDash([3, 3]); ctx.strokeStyle = T.short; ctx.globalAlpha = 0.45;
+    ctx.strokeRect(L.gaugeX + 0.5, y0 + 2, L.gaugeW - 1, gBottom - y0 - 2);
+    ctx.restore();
 
-            // 3. Cost Calculation (Per Step)
-            const stepDurationInDays = 1 / STEPS_PER_DAY;
-            if (inventory > 0) {
-                totalHoldingCost += inventory * P.holdingCost * stepDurationInDays;
-            } else if (inventory < 0) {
-                totalShortageCost += Math.abs(inventory) * P.shortageCost * stepDurationInDays;
-            }
-            
-            // 4. Check for ROP and Place Order
-            if (inventory <= P.ROP && orders.length === 0) {
-                const randomLeadTimeDays = normalRandom(P.leadTimeMean, P.leadTimeStdDev);
-                const leadTimeSteps = Math.ceil(randomLeadTimeDays * STEPS_PER_DAY);
-                const arrivalStep = timeStep + leadTimeSteps;
+    // Fill
+    const yi = gy(S.inventory);
+    ctx.fillStyle = S.inventory >= 0 ? T.stock : T.short;
+    ctx.fillRect(L.gaugeX + 2, Math.min(y0, yi), L.gaugeW - 4, Math.abs(yi - y0));
+    if (S.inventory > gMax || L.rackBottom - S.inventory * ppu > gBottom) {
+      // Off the scale: small arrow at the clamped end
+      const up = S.inventory > gMax, ay = up ? L.top - 2 : gBottom + 2;
+      ctx.beginPath(); ctx.moveTo(L.gaugeX + L.gaugeW / 2, ay + (up ? -6 : 6));
+      ctx.lineTo(L.gaugeX + 1, ay); ctx.lineTo(gr - 1, ay); ctx.closePath();
+      ctx.fillStyle = up ? T.stock : T.short; ctx.fill();
+    }
 
-                orders.push({ 
-                    arrivalStep: arrivalStep, 
-                    quantity: P.Q, 
-                    // Record the inventory level when the order was placed (for truck path line)
-                    placedAtInv: inventoryHistory.at(-1)?.y || inventory,
-                    placedAtStep: timeStep 
-                });
-                
-                totalOrderingCost += P.orderingCost;
-                
-                // NEW: Calculate and add purchasing cost
-                const purchaseCost = P.unitCost * P.Q;
-                totalPurchasingCost += purchaseCost;
+    // Row ticks that line up with every shelf beam
+    ctx.strokeStyle = T.rack; ctx.lineWidth = 1;
+    for (let r = 1; r < WH_ROWS; r++) {
+      const ty = Math.round(L.rackBottom - r * L.cellH) + 0.5;
+      ctx.beginPath(); ctx.moveTo(gr, ty); ctx.lineTo(gr + 5, ty); ctx.stroke();
+    }
+    // Zero line joins the bottom beam
+    ctx.strokeStyle = T.rack; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(L.gaugeX - 4, Math.round(y0) + 0.5); ctx.lineTo(L.rackX0, Math.round(y0) + 0.5); ctx.stroke();
 
-                // Set temporary event message
-                eventMessage = `<span class="text-indigo-600 font-bold">🚨 Reorder Point Hit!</span> Order Q=${P.Q} placed with Lead Time of ${randomLeadTimeDays.toFixed(1)} days.`;
-                eventMessageExpiryStep = timeStep + EVENT_DISPLAY_STEPS;
-            }
+    // ROP tick on the gauge
+    ctx.strokeStyle = T.rop; ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(L.gaugeX - 6, yr); ctx.lineTo(gr + 4, yr); ctx.stroke();
+    ctx.setLineDash([]);
 
-            // 5. Check for Order Arrivals
-            for (let i = orders.length - 1; i >= 0; i--) {
-                const order = orders[i];
-                if (timeStep >= order.arrivalStep) {
-                    inventory += order.quantity;
-                    orders.splice(i, 1);
-                    
-                    // Set temporary event message
-                    eventMessage = `<span class="text-emerald-600 font-bold">📦 Delivery Arrived!</span> Inventory increased by ${order.quantity} units.`;
-                    eventMessageExpiryStep = timeStep + EVENT_DISPLAY_STEPS;
-                }
-            }
+    // Labels
+    ctx.font = `10px ${T.mono}`; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = T.muted;
+    ctx.fillText(String(gMax), L.gaugeX - 6, L.top + 4);
+    ctx.fillText('0', L.gaugeX - 8, y0);
+    ctx.fillStyle = T.short; ctx.globalAlpha = 0.8;
+    ctx.fillText('−', L.gaugeX - 8, gBottom - 6);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = T.rop; ctx.font = `600 10px ${T.mono}`;
+    if (Math.abs(yr - y0) > 11 && Math.abs(yr - L.top - 4) > 11) ctx.fillText('ROP', L.gaugeX - 8, yr);
 
-            // 6. Record history for plotting and update counters
-            inventoryHistory.push({ x: timeStep, y: inventory });
-            if (inventoryHistory.length > MAX_DATA_POINTS) {
-                inventoryHistory.shift(); 
-            }
-            timeStep++;
-            pulseTime = (pulseTime + 0.1) % (2 * Math.PI); // Update pulse time
-            updateCostDisplay();
-            updateStatusDisplay(); // Update display based on new messages/status
-        }
+    // Backorder queue on the floor
+    if (WH.back > 0) {
+      const maxShow = Math.max(3, Math.floor((w * 0.45) / (L.bw + 6)));
+      const n = Math.min(WH.back, maxShow);
+      const by = L.floorY + 44;
+      for (let k = 0; k < n; k++) drawBox(ctx, L.door.x - 14 - k * (L.bw + 6), by, 1, 'back');
+      ctx.font = `600 11px ${T.mono}`; ctx.fillStyle = T.short; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+      const more = WH.back > n ? ` (+${WH.back - n} boxes)` : '';
+      ctx.fillText(`Backorder ${(-S.inventory).toFixed(1)} units${more}`, w - L.pad - 8, L.floorY + 20);
+    }
 
+    // Truck approaching / parked at the dock
+    const next = S.orders.reduce((a, o) => (!a || o.arrivalStep < a.arrivalStep ? o : a), null);
+    if (next) {
+      const p = 1 - (next.arrivalStep - S.timeStep) / (STEPS_PER_DAY * 1.5);
+      if (p > 0) {
+        const e = 1 - Math.pow(1 - Math.min(1, p), 3);
+        const sx = L.floorX0 + 16;
+        drawEmoji(ctx, '🚚', sx + (L.dock.x - sx) * e, L.dock.y + 4, 30, true, Math.min(1, p * 3));
+      }
+    }
+    const recent = S.arrivals[S.arrivals.length - 1];
+    if (recent && (!next || (next.arrivalStep - S.timeStep) > STEPS_PER_DAY * 1.5)) {
+      const age = (S.timeStep - recent.arrivedStep) / STEPS_PER_DAY;
+      drawEmoji(ctx, '🚚', L.dock.x, L.dock.y + 4, 30, true, Math.max(0, 1 - age));
+    }
 
-        // --- Drawing Logic (Canvas) ---
+    // Moving boxes
+    const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+    WH.particles = WH.particles.filter((pt) => {
+      const t = (now - pt.start) / pt.dur;
+      if (t < 0) return true;
+      if (t >= 1) { if (pt.kind === 'in') WH.inFlight.delete(pt.target); return false; }
+      const e = ease(t);
+      const x = pt.from.x + (pt.to.x - pt.from.x) * e;
+      const arc = pt.kind === 'fill' ? 30 : 46;
+      const y = pt.from.y + (pt.to.y - pt.from.y) * e - Math.sin(Math.PI * t) * arc;
+      const alpha = pt.kind === 'out' ? (t > 0.7 ? (1 - t) / 0.3 : 1) : 1;
+      drawBox(ctx, x, y, alpha, pt.kind === 'fill' ? 'fill' : 'stock');
+      return true;
+    });
+  }
 
-        function drawGraph() {
-            const W = CANVAS.width;
-            const H = CANVAS.height;
-            CTX.clearRect(0, 0, W, H);
+  // ---------- Controls ----------
+  const startBtn = $('startBtn'), stopBtn = $('stopBtn'), resetBtn = $('resetBtn'), speedSel = $('speed');
+  let speed = 1, acc = 0;
 
-            if (inventoryHistory.length < 2) {
-                CTX.textAlign = 'center';
-                CTX.fillStyle = '#6b7280';
-                CTX.font = '20px Inter';
-                CTX.fillText("No data yet. Press Start.", W / 2, H / 2);
-                return;
-            }
+  function start() {
+    const err = validate(getParams());
+    if (err) { S.error = err; renderStatus(performance.now()); return; }
+    S.error = null;
+    if (S.running) return;
+    if (S.timeStep === 0) { chooseUnitsPerBox(); syncWarehouse(true); }
+    S.running = true; acc = 0;
+    startBtn.disabled = true; stopBtn.disabled = false;
+    startBtn.textContent = 'Running';
+  }
+  function pause() {
+    S.running = false;
+    if (S.timeStep > 0) startBtn.textContent = 'Resume';
+    startBtn.disabled = false; stopBtn.disabled = true;
+  }
+  function reset() {
+    pause();
+    freshState();
+    startBtn.textContent = 'Start simulation';
+    chooseUnitsPerBox();
+    syncWarehouse(true);
+    lastTransitKey = 'x';
+    renderNumbers();
+  }
 
-            const P = getParams();
-            const currentStep = inventoryHistory.at(-1).x;
-            const currentInv = inventoryHistory.at(-1).y;
+  startBtn.addEventListener('click', start);
+  stopBtn.addEventListener('click', pause);
+  resetBtn.addEventListener('click', reset);
+  speedSel.addEventListener('change', () => { speed = parseFloat(speedSel.value) || 1; });
+  PARAM_IDS.forEach((id) => $(id).addEventListener('input', () => {
+    renderReference();
+    if (S.error && !validate(getParams())) { S.error = null; }
+    if (S.timeStep === 0) { chooseUnitsPerBox(); syncWarehouse(true); }
+  }));
 
-            // --- Scaling and Axis Calculations ---
-            const maxY = Math.max(...inventoryHistory.map(d => d.y), P.ROP + P.Q, 10);
-            const minY = Math.min(...inventoryHistory.map(d => d.y), P.ROP, -10);
-            const padding = 20;
-            const plotW = W - 2 * padding;
-            const plotH = H - 2 * padding;
+  // ---------- Single animation loop (no duplicate loops possible) ----------
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(now - last, 250);
+    last = now;
+    if (S.running) {
+      acc += dt;
+      const stepMs = BASE_STEP_MS / speed;
+      let n = 0;
+      while (acc >= stepMs && n < 12 && S.running) { step(); acc -= stepMs; n++; }
+      if (n) renderNumbers();
+    }
+    drawGraph(now);
+    drawWarehouse(now);
+    renderStatus(now);
+    requestAnimationFrame(frame);
+  }
 
-            const inventoryRange = maxY - minY;
-            const scaleY = plotH / inventoryRange;
-            const zeroY = padding + (maxY * scaleY);
+  // ---------- Init ----------
+  function resizeAll() { resizeGraph(); resizeWarehouse(); WH.particles.length = 0; WH.inFlight.clear(); }
+  new ResizeObserver(resizeAll).observe($('graphWrap'));
+  new ResizeObserver(resizeAll).observe($('whWrap'));
+  $('referenceBlock').hidden = !SHOW_REFERENCE_VALUES;   // see TEACHING SWITCH at the top of the script
+  freshState();
+  resizeAll();
+  reset();
+  renderReference();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(readTokens);
+  requestAnimationFrame(frame);
+})();
+</script>
 
-            // X-axis: Time Scale (Centering the current point at 70% of the graph)
-            const END_SPACE_RATIO = 0.3; 
-            const START_SPACE_RATIO = 1 - END_SPACE_RATIO; 
-
-            // Define the visible window for the X-axis
-            const minTimeForAxis = currentStep - (GRAPH_WINDOW_STEPS * START_SPACE_RATIO);
-            const maxTimeForAxis = currentStep + (GRAPH_WINDOW_STEPS * END_SPACE_RATIO);
-            const timeRange = maxTimeForAxis - minTimeForAxis;
-
-            const scaleX = plotW / timeRange;
-            
-            // Function to convert inventory to Y-coordinate
-            const toY = (inv) => zeroY - (inv * scaleY);
-            // Function to convert time step to X-coordinate
-            const toX = (t) => padding + (t - minTimeForAxis) * scaleX;
-
-            // --- 1. Draw Grid Lines and Labels ---
-
-            // Zero Inventory Line
-            CTX.beginPath();
-            CTX.strokeStyle = '#9ca3af'; // Gray
-            CTX.lineWidth = 1;
-            CTX.moveTo(padding, zeroY);
-            CTX.lineTo(W - padding, zeroY);
-            CTX.stroke();
-            
-            // Label for Zero Inventory
-            CTX.fillStyle = '#9ca3af';
-            CTX.font = '12px Inter';
-            CTX.textAlign = 'left';
-            CTX.fillText('0', 5, zeroY + 4);
-
-            // Reorder Point (ROP) Line (User Setting)
-            const ropY = toY(P.ROP);
-            CTX.beginPath();
-            CTX.strokeStyle = '#f97316'; // Orange/Amber
-            CTX.setLineDash([5, 5]); // Keeps ROP line dashed
-            CTX.moveTo(padding, ropY);
-            CTX.lineTo(W - padding, ropY);
-            CTX.stroke();
-            CTX.setLineDash([]); // Important: Reset for solid lines
-            
-            // Label for ROP
-            CTX.fillStyle = '#f97316';
-            CTX.fillText(`ROP: ${P.ROP}`, padding + 5, ropY + 4); // ROP label moved left
-
-            // --- Draw Day Labels on X-axis and Grid Lines ---
-            const startDayTimeStep = Math.ceil(minTimeForAxis / STEPS_PER_DAY) * STEPS_PER_DAY;
-
-            for (let t = startDayTimeStep; t <= maxTimeForAxis; t += STEPS_PER_DAY) {
-                const x = toX(t);
-
-                if (x < padding || x > W - padding) continue;
-
-                const dayNumber = Math.floor(t / STEPS_PER_DAY);
-
-                // Draw vertical grid marker line
-                CTX.beginPath();
-                CTX.strokeStyle = '#e5e7eb'; // Very light gray for grid
-                CTX.lineWidth = 1;
-                // Draw from bottom of plot area to top
-                CTX.moveTo(x, H - padding);
-                CTX.lineTo(x, padding);
-                CTX.stroke();
-
-                // Draw day label
-                CTX.fillStyle = '#6b7280';
-                CTX.font = '12px Inter';
-                CTX.textAlign = 'center';
-                // Position the label slightly below the bottom padding line
-                CTX.fillText(`Day ${dayNumber}`, x, H - padding + 15);
-            }
-            
-            // --- 2. Draw ROP Order Indicator Label (+Q) ---
-            orders.forEach(order => {
-                const placedX = toX(order.placedAtStep);
-                
-                // Only draw if the placement step is within the visible window
-                if (placedX >= padding && placedX <= W - padding) {
-                    const ropY = toY(P.ROP); // Y-coord for ROP
-
-                    // Add text label
-                    CTX.fillStyle = '#6366f1'; // Indigo for order size
-                    CTX.font = '14px Inter';
-                    CTX.textAlign = 'center';
-                    // Draw label just above the ROP line for visibility
-                    CTX.fillText(`+${P.Q}`, placedX, ropY - 5); 
-                }
-            });
-
-
-            // --- 3. Draw Inventory Line (Segment by Segment for Color Change) ---
-            CTX.lineWidth = 3;
-            CTX.lineJoin = 'round';
-            CTX.lineCap = 'round';
-
-            let lastX, lastY;
-            
-            for (let i = 1; i < inventoryHistory.length; i++) {
-                const p1 = inventoryHistory[i - 1]; // Previous point
-                const p2 = inventoryHistory[i];     // Current point
-
-                const x1 = toX(p1.x);
-                const y1 = toY(p1.y);
-                const x2 = toX(p2.x);
-                const y2 = toY(p2.y);
-                
-                // Determine color: If EITHER point is below or at zero, use red for shortage.
-                const isShortage = p1.y <= 0 || p2.y <= 0;
-
-                CTX.beginPath();
-                // Use Red for shortage, Blue otherwise
-                CTX.strokeStyle = isShortage ? '#ef4444' : '#3b82f6'; 
-
-                // Only draw points that are within the visible X-axis range
-                if (x1 >= padding && x1 <= W - padding) {
-                    CTX.moveTo(x1, y1);
-                    CTX.lineTo(x2, y2);
-                    CTX.stroke();
-                    
-                    lastX = x2;
-                    lastY = y2;
-                }
-            }
-
-
-            // --- 4. Draw EKG Pulse Dot at the current level ---
-            if (lastX !== undefined) {
-                const pulseScale = 1 + Math.sin(pulseTime * 5) * 0.15; // Pulsing effect
-                const dotRadius = 5 * pulseScale;
-
-                // Color the dot red if the current inventory is zero or negative
-                CTX.fillStyle = currentInv <= 0 ? '#ef4444' : '#3b82f6'; 
-                CTX.beginPath();
-                CTX.arc(lastX, lastY, dotRadius, 0, Math.PI * 2);
-                CTX.fill();
-
-                // Draw inventory unit label above the dot
-                CTX.fillStyle = currentInv <= 0 ? '#ef4444' : '#3b82f6'; // Same color as dot
-                CTX.font = 'bold 14px Inter';
-                CTX.textAlign = 'center';
-                CTX.fillText(`${currentInv.toFixed(1)} units`, lastX, lastY - dotRadius - 10);
-            }
-
-            // --- 5. Draw In-Transit Orders (Truck Animation) ---
-            
-            CTX.font = '48px Inter'; // Doubled size for truck emoji
-            orders.forEach(order => {
-                const startX = toX(order.placedAtStep);
-                const endX = toX(order.arrivalStep);
-                
-                // Clamp current position to visible range
-                const truckTime = Math.max(minTimeForAxis, Math.min(currentStep, order.arrivalStep));
-                const currentX = toX(truckTime);
-                const truckY = toY(order.placedAtInv); 
-                
-                // Draw path line (dashed green)
-                CTX.beginPath();
-                CTX.strokeStyle = '#10b981'; // Emerald/Green
-                CTX.setLineDash([8, 8]);
-                CTX.lineWidth = 2;
-                CTX.moveTo(startX, truckY);
-                CTX.lineTo(endX, truckY);
-                CTX.stroke();
-                CTX.setLineDash([]);
-                
-                // Draw the truck emoji
-                CTX.textAlign = 'center';
-                let opacity = 1;
-                let truckEmoji = '🚚';
-                
-                // Check if the truck is at the arrival point (gives a flash of 'check')
-                if (currentStep >= order.arrivalStep) {
-                    truckEmoji = '✅';
-                    // Fades out the checkmark after arrival
-                    opacity = 0.5 + 0.5 * (1 - (currentStep - order.arrivalStep) / STEPS_PER_DAY); 
-                } else {
-                    truckEmoji = '🚚';
-                }
-                
-                CTX.globalAlpha = opacity;
-                
-                // --- Flip horizontally (driving right) ---
-                CTX.save(); // Save current state
-                // Center adjustment for the large emoji to look right
-                CTX.translate(currentX, truckY + 8); 
-                CTX.scale(-1, 1); // Flip horizontally
-                CTX.fillText(truckEmoji, 0, 0); // Draw at new origin
-                CTX.restore(); // Restore original state (unflip)
-
-                CTX.globalAlpha = 1; // Reset opacity
-            });
-
-            // --- 6. Update Store Location Icon (Dynamically) ---
-            if (lastX !== undefined) {
-                const storeIcon = document.getElementById('store-location');
-                // Set the 'left' style to the calculated X position (lastX)
-                // The CSS 'transform: translateX(-50%)' centers the 🏪 icon over this X position.
-                storeIcon.style.left = `${lastX}px`;
-            }
-        }
-
-        // --- Animation Loop ---
-
-        function animate() {
-            if (!isRunning) return;
-
-            // 1. Update State
-            updateState();
-
-            // 2. Draw Graph
-            drawGraph();
-
-            // 3. Loop
-            animationFrameId = setTimeout(() => {
-                requestAnimationFrame(animate);
-            }, SIMULATION_SPEED_MS);
-        }
-
-        /** Controls the start/stop state of the simulation. */
-        function toggleSimulation(start) {
-            if (start) {
-                // Input validation (simple check)
-                const P = getParams();
-                if (P.ROP === undefined || P.ROP === null || isNaN(P.ROP) || P.Q <= 0 || P.demandMean <= 0 || P.leadTimeMean <= 0) {
-                    statusMessage.className = 'mt-4 p-3 rounded-lg text-white bg-red-600 text-center font-medium';
-                    statusMessage.textContent = 'Error: Check inputs. ROP must be a valid number. Q, Demand Mean, and Lead Time Mean must be > 0.';
-                    return;
-                }
-                
-                if (!isRunning) {
-                    isRunning = true;
-                    startBtn.disabled = true;
-                    stopBtn.disabled = false;
-                    // Reset status message color to running state
-                    updateStatusDisplay();
-                    currentDailyDemand = normalRandom(P.demandMean, P.demandStdDev);
-                    requestAnimationFrame(animate);
-                }
-            } else {
-                // Pause Logic
-                if (isRunning) {
-                    isRunning = false;
-                    clearTimeout(animationFrameId);
-                    startBtn.disabled = false;
-                    stopBtn.disabled = true;
-                    // Keep the current message, but change the styling to paused
-                    updateStatusDisplay(true); 
-                }
-            }
-        }
-
-        /** Resets the entire simulation state. */
-        function resetSimulation() {
-            toggleSimulation(false); // Stop if running
-            
-            // Reset state variables
-            timeStep = 0;
-            simulatedDays = 0;
-            inventory = 150;
-            inventoryHistory.length = 0;
-            orders.length = 0;
-            currentDailyDemand = 0;
-            totalHoldingCost = 0;
-            totalOrderingCost = 0;
-            totalShortageCost = 0;
-            totalPurchasingCost = 0; // NEW: Reset purchasing cost
-            
-            // Reset messaging state
-            eventMessage = "";
-            eventMessageExpiryStep = 0;
-            currentStatusMessage = 'Simulation reset. Click "Start Simulation" to begin.';
-
-
-            // Reset UI
-            updateCostDisplay();
-            updateStatusDisplay(); // Use the standard status reset message
-            
-            // Draw initial empty graph
-            setupCanvas();
-            drawGraph();
-        }
-
-        /** Sets up canvas dimensions for responsiveness. */
-        function setupCanvas() {
-            CANVAS.width = CANVAS.parentElement.clientWidth;
-        }
-
-        // --- Initialization ---
-
-        window.addEventListener('resize', () => {
-            setupCanvas();
-            drawGraph();
-        });
-
-        window.onload = () => {
-            setupCanvas();
-            resetSimulation();
-        };
-
-    </script>
 </body>
 </html>
