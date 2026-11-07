@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory Management Simulator</title>
+    
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Light gray background */
+        }
+        .card {
+            @apply bg-white p-6 rounded-xl shadow-lg border border-gray-200;
+        }
+        .input-group label {
+            @apply block text-sm font-medium text-gray-700 mb-1;
+        }
+        .input-group input {
+            @apply w-full p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500;
+        }
+        canvas {
+            border: 1px solid #e5e7eb;
+            background-color: #ffffff;
+        }
+        /* Custom animation for the EKG dot */
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.3); opacity: 0.7; }
+        }
+        .pulse-dot {
+            animation: pulse 1.5s infinite ease-in-out;
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        indigo: { 500: '#6366f1', 600: '#4f46e5' },
+                        emerald: { 500: '#10b981', 600: '#059669' },
+                        red: { 500: '#ef4444', 600: '#dc2626' }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="p-4 md:p-8 min-h-screen">
+
+    <h1 class="text-3xl font-extrabold text-gray-900 mb-8 text-center">
+        Uncertainty in Inventory Management Simulator
+    </h1>
+
+    <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+        <!-- Simulation Graph (Large Column) -->
+        <div class="lg:col-span-2 relative overflow-hidden"> 
+            <div class="card">
+                <h2 class="text-xl font-semibold mb-4 text-indigo-600">Inventory Level vs. Time</h2>
+                <canvas id="inventoryCanvas" height="400" class="w-full"></canvas>
+                
+                <!-- Store Location Icon - Fixed at the bottom, X position updated dynamically by JS -->
+                <div id="store-location" class="absolute left-1/2 bottom-0 text-3xl transition-transform duration-75 ease-out" style="transform: translateX(-50%); z-index: 10;">
+                    🏪
+                </div>
+
+                <div id="statusMessage" class="mt-4 p-3 rounded-lg text-center font-medium bg-gray-100 text-gray-800">
+                    Click "Start Simulation" to begin.
+                </div>
+            </div>
+
+            <!-- Controls (Moved under the graph) -->
+            <div class="grid grid-cols-3 gap-4 mt-6">
+                <button id="startBtn" onclick="toggleSimulation(true)" class="bg-indigo-600 text-white font-semibold py-3 rounded-xl hover:bg-indigo-700 transition duration-150 shadow-md">
+                    Start Simulation
+                </button>
+                <button id="stopBtn" onclick="toggleSimulation(false)" class="bg-red-500 text-white font-semibold py-3 rounded-xl hover:bg-red-600 transition duration-150 shadow-md" disabled>
+                    Pause
+                </button>
+                <button id="resetBtn" onclick="resetSimulation()" class="bg-gray-500 text-white font-semibold py-3 rounded-xl hover:bg-gray-600 transition duration-150 shadow-md">
+                    Reset
+                </button>
+            </div>
+        </div>
+
+        <!-- Controls and Metrics (Small Column) -->
+        <div class="lg:col-span-1 space-y-6">
+            
+            <!-- User Decision Variables -->
+            <div class="card space-y-4">
+                <h2 class="text-xl font-bold text-gray-800 border-b pb-2">User Policy Settings</h2>
+                <div class="input-group">
+                    <label for="rop">Reorder Point (ROP, units)</label>
+                    <input type="number" id="rop" value="50" min="0" step="1" required>
+                    <p class="text-xs text-gray-500 mt-1">Order placed when inventory hits this level.</p>
+                </div>
+                <div class="input-group">
+                    <label for="orderQuantity">Order Quantity (Q, units)</label>
+                    <input type="number" id="orderQuantity" value="100" min="1" step="1" required>
+                    <p class="text-xs text-gray-500 mt-1">Size of each replenishment order.</p>
+                </div>
+            </div>
+            
+            <!-- Admin/System Parameters -->
+            <div class="card space-y-4">
+                <h2 class="text-xl font-bold text-gray-800 border-b pb-2">System Parameters (Admin)</h2>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="input-group">
+                        <label for="demandMean">Demand Avg ($$\mu$$)</label>
+                        <input type="number" id="demandMean" value="10" min="1" step="0.1" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="demandStdDev">Demand Std Dev ($$\sigma$$)</label>
+                        <input type="number" id="demandStdDev" value="2" min="0" step="0.1" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="leadTimeMean">Lead Time Avg ($$\mu$$ days)</label>
+                        <input type="number" id="leadTimeMean" value="5" min="1" step="0.1" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="leadTimeStdDev">Lead Time Std Dev ($$\sigma$$ days)</label>
+                        <input type="number" id="leadTimeStdDev" value="1" min="0" step="0.1" required>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="input-group">
+                        <label for="holdingCost">Holding Cost ($$/unit/day)</label>
+                        <input type="number" id="holdingCost" value="0.5" min="0" step="0.01" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="shortageCost">Shortage Penalty ($$/unit/day)</label>
+                        <input type="number" id="shortageCost" value="2.0" min="0" step="0.01" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="orderingCost">Ordering Cost ($$/order)</label>
+                        <input type="number" id="orderingCost" value="100" min="0" step="1" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="unitCost">Unit Cost ($$)</label>
+                        <input type="number" id="unitCost" value="50" min="0" step="1" required>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cost Metrics -->
+            <div class="card space-y-3">
+                <h2 class="text-xl font-bold text-gray-800 border-b pb-2">Accumulated Costs</h2>
+                <div class="text-sm">
+                    <p class="flex justify-between">
+                        <span class="font-medium text-gray-600">Total Holding Cost:</span>
+                        <span id="holdingCostDisplay" class="font-bold text-emerald-500">$0.00</span>
+                    </p>
+                    <p class="flex justify-between">
+                        <span class="font-medium text-gray-600">Total Shortage Cost:</span>
+                        <span id="shortageCostDisplay" class="font-bold text-red-500">$0.00</span>
+                    </p>
+                    <p class="flex justify-between">
+                        <span class="font-medium text-gray-600">Total Ordering Cost:</span>
+                        <span id="orderingCostDisplay" class="font-bold text-indigo-500">$0.00</span>
+                    </p>
+                    <!-- NEW: Total Purchasing Cost -->
+                    <p class="flex justify-between">
+                        <span class="font-medium text-gray-600">Total Purchasing Cost:</span>
+                        <span id="purchasingCostDisplay" class="font-bold text-gray-700">$0.00</span>
+                    </p>
+                    <hr class="my-2 border-gray-100">
+                    <p class="flex justify-between text-lg">
+                        <span class="font-extrabold text-gray-900">GRAND TOTAL COST:</span>
+                        <span id="totalCostDisplay" class="font-extrabold text-gray-900">$0.00</span>
+                    </p>
+                </div>
+                <p class="text-sm text-gray-500 mt-2">Simulated Days: <span id="daysDisplay">0</span></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Core Simulation Constants ---
+        const CANVAS = document.getElementById('inventoryCanvas');
+        const CTX = CANVAS.getContext('2d');
+        const SIMULATION_SPEED_MS = 100; // Time per step (controls animation speed)
+        const STEPS_PER_DAY = 10; // Number of animation frames per simulated day
+        const MAX_DATA_POINTS = 100; // Max number of points to keep in history
+        const GRAPH_WINDOW_STEPS = 100; // Total X-axis span in steps (10 days visible)
+        const EVENT_DISPLAY_SECONDS = 2; // How long temporary messages last
+        const EVENT_DISPLAY_STEPS = EVENT_DISPLAY_SECONDS * STEPS_PER_DAY / (SIMULATION_SPEED_MS / 1000); 
+
+        // --- Simulation State ---
+        let isRunning = false;
+        let animationFrameId = null;
+        let timeStep = 0; // Incremental step counter
+        let simulatedDays = 0;
+        let inventory = 150;
+        let currentDailyDemand = 0;
+        let pulseTime = 0; // For dot pulsing animation
+
+        // Data history for plotting
+        const inventoryHistory = []; 
+
+        // Orders currently in transit
+        const orders = []; // { arrivalStep: number, quantity: number, placedAtInv: number, placedAtStep: number }
+
+        // Messaging State
+        let currentStatusMessage = "Click \"Start Simulation\" to begin."; // Persistent daily/status message
+        let eventMessage = ""; // Temporary event message (ROP hit, Delivery)
+        let eventMessageExpiryStep = 0; // Time step when eventMessage clears
+
+        // Costs
+        let totalHoldingCost = 0;
+        let totalOrderingCost = 0;
+        let totalShortageCost = 0;
+        let totalPurchasingCost = 0; // NEW: Initialize purchasing cost
+
+        // --- DOM Elements ---
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusMessage = document.getElementById('statusMessage');
+
+        // --- Utility Functions ---
+
+        /** Generates a random number from a normal distribution using the Box-Muller transform. */
+        function normalRandom(mean, stdDev) {
+            let u = 0, v = 0;
+            while (u === 0) u = Math.random(); 
+            while (v === 0) v = Math.random();
+            const z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+            return Math.max(0, mean + stdDev * z); 
+        }
+
+        /** Retrieves all dynamic simulation parameters from the UI inputs. */
+        function getParams() {
+            return {
+                // User Decisions
+                ROP: parseFloat(document.getElementById('rop').value),
+                Q: parseFloat(document.getElementById('orderQuantity').value),
+                // Admin Parameters
+                demandMean: parseFloat(document.getElementById('demandMean').value),
+                demandStdDev: parseFloat(document.getElementById('demandStdDev').value),
+                leadTimeMean: parseFloat(document.getElementById('leadTimeMean').value),
+                leadTimeStdDev: parseFloat(document.getElementById('leadTimeStdDev').value),
+                holdingCost: parseFloat(document.getElementById('holdingCost').value),
+                orderingCost: parseFloat(document.getElementById('orderingCost').value),
+                shortageCost: parseFloat(document.getElementById('shortageCost').value),
+                unitCost: parseFloat(document.getElementById('unitCost').value),
+            };
+        }
+
+        /** Updates the cost display on the UI. */
+        function updateCostDisplay() {
+            // Include Purchasing Cost in the grand total calculation
+            const totalCost = totalHoldingCost + totalOrderingCost + totalShortageCost + totalPurchasingCost; 
+            
+            document.getElementById('holdingCostDisplay').textContent = `$${totalHoldingCost.toFixed(2)}`;
+            document.getElementById('shortageCostDisplay').textContent = `$${totalShortageCost.toFixed(2)}`;
+            document.getElementById('orderingCostDisplay').textContent = `$${totalOrderingCost.toFixed(2)}`;
+            document.getElementById('purchasingCostDisplay').textContent = `$${totalPurchasingCost.toFixed(2)}`; // NEW: Purchasing cost display
+            document.getElementById('totalCostDisplay').textContent = `$${totalCost.toFixed(2)}`;
+            document.getElementById('daysDisplay').textContent = simulatedDays;
+        }
+        
+        /** Updates the status message display based on the current state. */
+        function updateStatusDisplay(isPaused = false) {
+            let message = currentStatusMessage;
+            
+            if (eventMessage) {
+                // Show the event message above the current status message
+                message = `${currentStatusMessage}<br>${eventMessage}`;
+            }
+
+            if (isPaused) {
+                statusMessage.className = 'mt-4 p-3 rounded-lg text-white bg-red-600 text-center font-medium';
+                message += ` <br> <span class="font-extrabold">(PAUSED)</span>`;
+            } else {
+                statusMessage.className = 'mt-4 p-3 rounded-lg text-center font-medium bg-gray-100 text-gray-800';
+            }
+
+            statusMessage.innerHTML = message;
+        }
+
+
+        // --- Simulation Logic ---
+
+        /** Performs all state updates for one time step. */
+        function updateState() {
+            const P = getParams();
+
+            // 1. New Day Logic (Generate New Demand)
+            if (timeStep % STEPS_PER_DAY === 0) {
+                currentDailyDemand = normalRandom(P.demandMean, P.demandStdDev);
+                simulatedDays = Math.floor(timeStep / STEPS_PER_DAY);
+                
+                const inventoryStatus = inventory > 0 ? `Inventory: ${inventory.toFixed(1)} units` : `Shortage: ${Math.abs(inventory).toFixed(1)} units`;
+                currentStatusMessage = `<span class="font-bold text-gray-800">Day ${simulatedDays}:</span> Demand: ${currentDailyDemand.toFixed(1)} units. ${inventoryStatus}.`;
+            }
+
+            // 2. Inventory Depletion (With Added Uncertainty Jitter)
+            const baseStepDemand = currentDailyDemand / STEPS_PER_DAY;
+            
+            // Add a small, high-frequency random component to simulate uncertain usage timing
+            const jitterRange = (1.0 * P.demandStdDev) / STEPS_PER_DAY; 
+            const jitter = (Math.random() * jitterRange) - (jitterRange / 2); 
+            
+            const effectiveStepDemand = Math.max(0, baseStepDemand + jitter); 
+
+            inventory -= effectiveStepDemand;
+            
+            // Check event message expiry and clear if necessary
+            if (eventMessage && timeStep >= eventMessageExpiryStep) {
+                eventMessage = ""; 
+            }
+
+            // 3. Cost Calculation (Per Step)
+            const stepDurationInDays = 1 / STEPS_PER_DAY;
+            if (inventory > 0) {
+                totalHoldingCost += inventory * P.holdingCost * stepDurationInDays;
+            } else if (inventory < 0) {
+                totalShortageCost += Math.abs(inventory) * P.shortageCost * stepDurationInDays;
+            }
+            
+            // 4. Check for ROP and Place Order
+            if (inventory <= P.ROP && orders.length === 0) {
+                const randomLeadTimeDays = normalRandom(P.leadTimeMean, P.leadTimeStdDev);
+                const leadTimeSteps = Math.ceil(randomLeadTimeDays * STEPS_PER_DAY);
+                const arrivalStep = timeStep + leadTimeSteps;
+
+                orders.push({ 
+                    arrivalStep: arrivalStep, 
+                    quantity: P.Q, 
+                    // Record the inventory level when the order was placed (for truck path line)
+                    placedAtInv: inventoryHistory.at(-1)?.y || inventory,
+                    placedAtStep: timeStep 
+                });
+                
+                totalOrderingCost += P.orderingCost;
+                
+                // NEW: Calculate and add purchasing cost
+                const purchaseCost = P.unitCost * P.Q;
+                totalPurchasingCost += purchaseCost;
+
+                // Set temporary event message
+                eventMessage = `<span class="text-indigo-600 font-bold">🚨 Reorder Point Hit!</span> Order Q=${P.Q} placed with Lead Time of ${randomLeadTimeDays.toFixed(1)} days.`;
+                eventMessageExpiryStep = timeStep + EVENT_DISPLAY_STEPS;
+            }
+
+            // 5. Check for Order Arrivals
+            for (let i = orders.length - 1; i >= 0; i--) {
+                const order = orders[i];
+                if (timeStep >= order.arrivalStep) {
+                    inventory += order.quantity;
+                    orders.splice(i, 1);
+                    
+                    // Set temporary event message
+                    eventMessage = `<span class="text-emerald-600 font-bold">📦 Delivery Arrived!</span> Inventory increased by ${order.quantity} units.`;
+                    eventMessageExpiryStep = timeStep + EVENT_DISPLAY_STEPS;
+                }
+            }
+
+            // 6. Record history for plotting and update counters
+            inventoryHistory.push({ x: timeStep, y: inventory });
+            if (inventoryHistory.length > MAX_DATA_POINTS) {
+                inventoryHistory.shift(); 
+            }
+            timeStep++;
+            pulseTime = (pulseTime + 0.1) % (2 * Math.PI); // Update pulse time
+            updateCostDisplay();
+            updateStatusDisplay(); // Update display based on new messages/status
+        }
+
+
+        // --- Drawing Logic (Canvas) ---
+
+        function drawGraph() {
+            const W = CANVAS.width;
+            const H = CANVAS.height;
+            CTX.clearRect(0, 0, W, H);
+
+            if (inventoryHistory.length < 2) {
+                CTX.textAlign = 'center';
+                CTX.fillStyle = '#6b7280';
+                CTX.font = '20px Inter';
+                CTX.fillText("No data yet. Press Start.", W / 2, H / 2);
+                return;
+            }
+
+            const P = getParams();
+            const currentStep = inventoryHistory.at(-1).x;
+            const currentInv = inventoryHistory.at(-1).y;
+
+            // --- Scaling and Axis Calculations ---
+            const maxY = Math.max(...inventoryHistory.map(d => d.y), P.ROP + P.Q, 10);
+            const minY = Math.min(...inventoryHistory.map(d => d.y), P.ROP, -10);
+            const padding = 20;
+            const plotW = W - 2 * padding;
+            const plotH = H - 2 * padding;
+
+            const inventoryRange = maxY - minY;
+            const scaleY = plotH / inventoryRange;
+            const zeroY = padding + (maxY * scaleY);
+
+            // X-axis: Time Scale (Centering the current point at 70% of the graph)
+            const END_SPACE_RATIO = 0.3; 
+            const START_SPACE_RATIO = 1 - END_SPACE_RATIO; 
+
+            // Define the visible window for the X-axis
+            const minTimeForAxis = currentStep - (GRAPH_WINDOW_STEPS * START_SPACE_RATIO);
+            const maxTimeForAxis = currentStep + (GRAPH_WINDOW_STEPS * END_SPACE_RATIO);
+            const timeRange = maxTimeForAxis - minTimeForAxis;
+
+            const scaleX = plotW / timeRange;
+            
+            // Function to convert inventory to Y-coordinate
+            const toY = (inv) => zeroY - (inv * scaleY);
+            // Function to convert time step to X-coordinate
+            const toX = (t) => padding + (t - minTimeForAxis) * scaleX;
+
+            // --- 1. Draw Grid Lines and Labels ---
+
+            // Zero Inventory Line
+            CTX.beginPath();
+            CTX.strokeStyle = '#9ca3af'; // Gray
+            CTX.lineWidth = 1;
+            CTX.moveTo(padding, zeroY);
+            CTX.lineTo(W - padding, zeroY);
+            CTX.stroke();
+            
+            // Label for Zero Inventory
+            CTX.fillStyle = '#9ca3af';
+            CTX.font = '12px Inter';
+            CTX.textAlign = 'left';
+            CTX.fillText('0', 5, zeroY + 4);
+
+            // Reorder Point (ROP) Line (User Setting)
+            const ropY = toY(P.ROP);
+            CTX.beginPath();
+            CTX.strokeStyle = '#f97316'; // Orange/Amber
+            CTX.setLineDash([5, 5]); // Keeps ROP line dashed
+            CTX.moveTo(padding, ropY);
+            CTX.lineTo(W - padding, ropY);
+            CTX.stroke();
+            CTX.setLineDash([]); // Important: Reset for solid lines
+            
+            // Label for ROP
+            CTX.fillStyle = '#f97316';
+            CTX.fillText(`ROP: ${P.ROP}`, padding + 5, ropY + 4); // ROP label moved left
+
+            // --- Draw Day Labels on X-axis and Grid Lines ---
+            const startDayTimeStep = Math.ceil(minTimeForAxis / STEPS_PER_DAY) * STEPS_PER_DAY;
+
+            for (let t = startDayTimeStep; t <= maxTimeForAxis; t += STEPS_PER_DAY) {
+                const x = toX(t);
+
+                if (x < padding || x > W - padding) continue;
+
+                const dayNumber = Math.floor(t / STEPS_PER_DAY);
+
+                // Draw vertical grid marker line
+                CTX.beginPath();
+                CTX.strokeStyle = '#e5e7eb'; // Very light gray for grid
+                CTX.lineWidth = 1;
+                // Draw from bottom of plot area to top
+                CTX.moveTo(x, H - padding);
+                CTX.lineTo(x, padding);
+                CTX.stroke();
+
+                // Draw day label
+                CTX.fillStyle = '#6b7280';
+                CTX.font = '12px Inter';
+                CTX.textAlign = 'center';
+                // Position the label slightly below the bottom padding line
+                CTX.fillText(`Day ${dayNumber}`, x, H - padding + 15);
+            }
+            
+            // --- 2. Draw ROP Order Indicator Label (+Q) ---
+            orders.forEach(order => {
+                const placedX = toX(order.placedAtStep);
+                
+                // Only draw if the placement step is within the visible window
+                if (placedX >= padding && placedX <= W - padding) {
+                    const ropY = toY(P.ROP); // Y-coord for ROP
+
+                    // Add text label
+                    CTX.fillStyle = '#6366f1'; // Indigo for order size
+                    CTX.font = '14px Inter';
+                    CTX.textAlign = 'center';
+                    // Draw label just above the ROP line for visibility
+                    CTX.fillText(`+${P.Q}`, placedX, ropY - 5); 
+                }
+            });
+
+
+            // --- 3. Draw Inventory Line (Segment by Segment for Color Change) ---
+            CTX.lineWidth = 3;
+            CTX.lineJoin = 'round';
+            CTX.lineCap = 'round';
+
+            let lastX, lastY;
+            
+            for (let i = 1; i < inventoryHistory.length; i++) {
+                const p1 = inventoryHistory[i - 1]; // Previous point
+                const p2 = inventoryHistory[i];     // Current point
+
+                const x1 = toX(p1.x);
+                const y1 = toY(p1.y);
+                const x2 = toX(p2.x);
+                const y2 = toY(p2.y);
+                
+                // Determine color: If EITHER point is below or at zero, use red for shortage.
+                const isShortage = p1.y <= 0 || p2.y <= 0;
+
+                CTX.beginPath();
+                // Use Red for shortage, Blue otherwise
+                CTX.strokeStyle = isShortage ? '#ef4444' : '#3b82f6'; 
+
+                // Only draw points that are within the visible X-axis range
+                if (x1 >= padding && x1 <= W - padding) {
+                    CTX.moveTo(x1, y1);
+                    CTX.lineTo(x2, y2);
+                    CTX.stroke();
+                    
+                    lastX = x2;
+                    lastY = y2;
+                }
+            }
+
+
+            // --- 4. Draw EKG Pulse Dot at the current level ---
+            if (lastX !== undefined) {
+                const pulseScale = 1 + Math.sin(pulseTime * 5) * 0.15; // Pulsing effect
+                const dotRadius = 5 * pulseScale;
+
+                // Color the dot red if the current inventory is zero or negative
+                CTX.fillStyle = currentInv <= 0 ? '#ef4444' : '#3b82f6'; 
+                CTX.beginPath();
+                CTX.arc(lastX, lastY, dotRadius, 0, Math.PI * 2);
+                CTX.fill();
+
+                // Draw inventory unit label above the dot
+                CTX.fillStyle = currentInv <= 0 ? '#ef4444' : '#3b82f6'; // Same color as dot
+                CTX.font = 'bold 14px Inter';
+                CTX.textAlign = 'center';
+                CTX.fillText(`${currentInv.toFixed(1)} units`, lastX, lastY - dotRadius - 10);
+            }
+
+            // --- 5. Draw In-Transit Orders (Truck Animation) ---
+            
+            CTX.font = '48px Inter'; // Doubled size for truck emoji
+            orders.forEach(order => {
+                const startX = toX(order.placedAtStep);
+                const endX = toX(order.arrivalStep);
+                
+                // Clamp current position to visible range
+                const truckTime = Math.max(minTimeForAxis, Math.min(currentStep, order.arrivalStep));
+                const currentX = toX(truckTime);
+                const truckY = toY(order.placedAtInv); 
+                
+                // Draw path line (dashed green)
+                CTX.beginPath();
+                CTX.strokeStyle = '#10b981'; // Emerald/Green
+                CTX.setLineDash([8, 8]);
+                CTX.lineWidth = 2;
+                CTX.moveTo(startX, truckY);
+                CTX.lineTo(endX, truckY);
+                CTX.stroke();
+                CTX.setLineDash([]);
+                
+                // Draw the truck emoji
+                CTX.textAlign = 'center';
+                let opacity = 1;
+                let truckEmoji = '🚚';
+                
+                // Check if the truck is at the arrival point (gives a flash of 'check')
+                if (currentStep >= order.arrivalStep) {
+                    truckEmoji = '✅';
+                    // Fades out the checkmark after arrival
+                    opacity = 0.5 + 0.5 * (1 - (currentStep - order.arrivalStep) / STEPS_PER_DAY); 
+                } else {
+                    truckEmoji = '🚚';
+                }
+                
+                CTX.globalAlpha = opacity;
+                
+                // --- Flip horizontally (driving right) ---
+                CTX.save(); // Save current state
+                // Center adjustment for the large emoji to look right
+                CTX.translate(currentX, truckY + 8); 
+                CTX.scale(-1, 1); // Flip horizontally
+                CTX.fillText(truckEmoji, 0, 0); // Draw at new origin
+                CTX.restore(); // Restore original state (unflip)
+
+                CTX.globalAlpha = 1; // Reset opacity
+            });
+
+            // --- 6. Update Store Location Icon (Dynamically) ---
+            if (lastX !== undefined) {
+                const storeIcon = document.getElementById('store-location');
+                // Set the 'left' style to the calculated X position (lastX)
+                // The CSS 'transform: translateX(-50%)' centers the 🏪 icon over this X position.
+                storeIcon.style.left = `${lastX}px`;
+            }
+        }
+
+        // --- Animation Loop ---
+
+        function animate() {
+            if (!isRunning) return;
+
+            // 1. Update State
+            updateState();
+
+            // 2. Draw Graph
+            drawGraph();
+
+            // 3. Loop
+            animationFrameId = setTimeout(() => {
+                requestAnimationFrame(animate);
+            }, SIMULATION_SPEED_MS);
+        }
+
+        /** Controls the start/stop state of the simulation. */
+        function toggleSimulation(start) {
+            if (start) {
+                // Input validation (simple check)
+                const P = getParams();
+                if (P.ROP === undefined || P.ROP === null || isNaN(P.ROP) || P.Q <= 0 || P.demandMean <= 0 || P.leadTimeMean <= 0) {
+                    statusMessage.className = 'mt-4 p-3 rounded-lg text-white bg-red-600 text-center font-medium';
+                    statusMessage.textContent = 'Error: Check inputs. ROP must be a valid number. Q, Demand Mean, and Lead Time Mean must be > 0.';
+                    return;
+                }
+                
+                if (!isRunning) {
+                    isRunning = true;
+                    startBtn.disabled = true;
+                    stopBtn.disabled = false;
+                    // Reset status message color to running state
+                    updateStatusDisplay();
+                    currentDailyDemand = normalRandom(P.demandMean, P.demandStdDev);
+                    requestAnimationFrame(animate);
+                }
+            } else {
+                // Pause Logic
+                if (isRunning) {
+                    isRunning = false;
+                    clearTimeout(animationFrameId);
+                    startBtn.disabled = false;
+                    stopBtn.disabled = true;
+                    // Keep the current message, but change the styling to paused
+                    updateStatusDisplay(true); 
+                }
+            }
+        }
+
+        /** Resets the entire simulation state. */
+        function resetSimulation() {
+            toggleSimulation(false); // Stop if running
+            
+            // Reset state variables
+            timeStep = 0;
+            simulatedDays = 0;
+            inventory = 150;
+            inventoryHistory.length = 0;
+            orders.length = 0;
+            currentDailyDemand = 0;
+            totalHoldingCost = 0;
+            totalOrderingCost = 0;
+            totalShortageCost = 0;
+            totalPurchasingCost = 0; // NEW: Reset purchasing cost
+            
+            // Reset messaging state
+            eventMessage = "";
+            eventMessageExpiryStep = 0;
+            currentStatusMessage = 'Simulation reset. Click "Start Simulation" to begin.';
+
+
+            // Reset UI
+            updateCostDisplay();
+            updateStatusDisplay(); // Use the standard status reset message
+            
+            // Draw initial empty graph
+            setupCanvas();
+            drawGraph();
+        }
+
+        /** Sets up canvas dimensions for responsiveness. */
+        function setupCanvas() {
+            CANVAS.width = CANVAS.parentElement.clientWidth;
+        }
+
+        // --- Initialization ---
+
+        window.addEventListener('resize', () => {
+            setupCanvas();
+            drawGraph();
+        });
+
+        window.onload = () => {
+            setupCanvas();
+            resetSimulation();
+        };
+
+    </script>
+</body>
+</html>
